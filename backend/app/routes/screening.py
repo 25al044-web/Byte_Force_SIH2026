@@ -12,6 +12,7 @@ Executes the end-to-end identity screening pipeline:
 9. Real explainable rule-based risk-scoring engine.
 """
 
+import os
 from typing import Optional
 from fastapi import APIRouter, File, Query, UploadFile, status
 
@@ -76,10 +77,11 @@ async def screen_identity(
     doc_info = extraction_result.get("document", {})
 
     extracted_doc_number = doc_info.get("document_number")
-    # Development override allows testing synthetic blacklist triggers
+    # Development override allows testing synthetic blacklist triggers in demo mode
+    demo_enabled = os.getenv("DEMO_MODE", "true").strip().lower() in ("true", "1", "yes", "on")
     active_doc_number = (
         doc_number_override.strip().upper()
-        if doc_number_override
+        if (doc_number_override and demo_enabled)
         else extracted_doc_number
     )
 

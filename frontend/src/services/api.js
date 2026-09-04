@@ -82,3 +82,33 @@ export async function checkBackendHealth() {
     return false
   }
 }
+
+/**
+ * Retrieves the current demonstration mode status from backend.
+ */
+export async function getDemoStatus() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/demo/status`)
+    if (res.ok) {
+      const data = await res.json()
+      return Boolean(data.demo_mode)
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Resets demo scan history (clears identity_embeddings only).
+ */
+export async function resetDemoData() {
+  const res = await fetch(`${API_BASE_URL}/api/demo/reset`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || 'Failed to reset demo scan data.')
+  }
+  return res.json()
+}
