@@ -7,6 +7,7 @@ from app.services.expiry_validator import validate_expiry
 from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import compute_mrz_check_digit, validate_td3_mrz
 from app.services.risk_engine import calculate_risk
+from app.services.tamper_detector import detect_tampering
 
 __all__ = [
     "calculate_risk",
@@ -14,6 +15,7 @@ __all__ = [
     "check_duplicate_identity",
     "compare_faces",
     "compute_mrz_check_digit",
+    "detect_tampering",
     "extract_document",
     "extract_selfie_embedding",
     "store_embedding",

@@ -37,6 +37,7 @@ from app.services.expiry_validator import validate_expiry
 from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
+from app.services.tamper_detector import detect_tampering
 
 router = APIRouter()
 
@@ -163,15 +164,22 @@ async def screen_identity(
             embedding=selfie_embedding,
         )
 
-    # 10. Assemble checks container (tamper remains simulated)
+    # 10. REAL Document Tamper Screening
+    tamper_res = detect_tampering(
+        image_bytes=document_bytes,
+        mime_type=mime_type,
+    )
+    tamper_check = TamperCheckResult(
+        status=CheckStatus(tamper_res["status"]),
+        risk=tamper_res.get("risk"),
+        reason=tamper_res["reason"],
+    )
+
+    # 11. Assemble checks container
     checks = ChecksContainer(
         mrz=mrz_check,
         expiry=expiry_check,
-        tamper=TamperCheckResult(
-            status=CheckStatus.WARNING,
-            risk=32,
-            reason="Possible image compression inconsistency",
-        ),
+        tamper=tamper_check,
         face_match=face_check,
         duplicate_identity=duplicate_check,
         blacklist=blacklist_check,

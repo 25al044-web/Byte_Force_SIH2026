@@ -96,13 +96,20 @@ SAMPLE_DUP_PASS = {
     "reason": "No highly similar face found under another identity document",
 }
 
+SAMPLE_TAMPER_PASS = {
+    "status": "PASS",
+    "risk": 0,
+    "reason": "No significant visual tamper indicators detected",
+}
 
+
+@patch("app.routes.screening.detect_tampering", return_value=SAMPLE_TAMPER_PASS)
 @patch("app.routes.screening.store_embedding", return_value=True)
 @patch("app.routes.screening.check_duplicate_identity", return_value=SAMPLE_DUP_PASS)
 @patch("app.routes.screening.extract_selfie_embedding", return_value=[0.0] * 512)
 @patch("app.routes.screening.compare_faces", return_value=SAMPLE_FACE_PASS)
 @patch("app.routes.screening.extract_document", return_value=SAMPLE_PASSPORT_EXTRACTION)
-def test_screen_endpoint_success(mock_extract, mock_face, mock_emb, mock_dup, mock_store):
+def test_screen_endpoint_success(mock_extract, mock_face, mock_emb, mock_dup, mock_store, mock_tamper):
     """Verify POST /api/screen returns 200 and conforms to the API contract with passport."""
     files = {
         "document_image": ("passport.jpg", io.BytesIO(b"fake_doc_image_bytes"), "image/jpeg"),
@@ -144,11 +151,16 @@ def test_screen_endpoint_success(mock_extract, mock_face, mock_emb, mock_dup, mo
     assert checks.duplicate_identity.status == CheckStatus.PASS
     assert checks.duplicate_identity.similar_identity is None
 
-    # Risk assessment — tamper WARNING (+10) is the only contributor; score=10, level=LOW
+    # Tamper check (mocked PASS)
+    assert checks.tamper.status == CheckStatus.PASS
+    assert checks.tamper.risk == 0
+
+    # Risk assessment — all checks pass cleanly -> score=0, level=LOW
     assert 0 <= validated.risk.score <= 100
-    assert validated.risk.score == 10
+    assert validated.risk.score == 0
     assert validated.risk.level == RiskLevel.LOW
     assert len(validated.explanations) >= 6
+
 
 
 
