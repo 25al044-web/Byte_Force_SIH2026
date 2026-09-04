@@ -5,3 +5,7 @@ pytest>=9.0.0
 httpx>=0.28.0
 google-genai>=1.0.0
 python-dotenv>=1.0.0
+insightface>=0.7.3
+onnxruntime>=1.16.0
+Pillow>=10.0.0
+opencv-python-headless>=4.8.0

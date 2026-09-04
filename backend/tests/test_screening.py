@@ -83,8 +83,16 @@ SAMPLE_EXTRACTION_FAILURE = {
 }
 
 
+SAMPLE_FACE_PASS = {
+    "status": "PASS",
+    "similarity": 91.7,
+    "reason": "Selfie matches document portrait (91.7% similarity)",
+}
+
+
+@patch("app.routes.screening.compare_faces", return_value=SAMPLE_FACE_PASS)
 @patch("app.routes.screening.extract_document", return_value=SAMPLE_PASSPORT_EXTRACTION)
-def test_screen_endpoint_success(mock_extract):
+def test_screen_endpoint_success(mock_extract, mock_face):
     """Verify POST /api/screen returns 200 and conforms to the API contract with passport."""
     files = {
         "document_image": ("passport.jpg", io.BytesIO(b"fake_doc_image_bytes"), "image/jpeg"),
@@ -118,7 +126,11 @@ def test_screen_endpoint_success(mock_extract):
     assert checks.blacklist.status == CheckStatus.PASS
     assert "not found in demonstration blacklist" in checks.blacklist.reason
 
-    # Risk assessment
+    # Face match check (mocked PASS)
+    assert checks.face_match.status == CheckStatus.PASS
+    assert checks.face_match.similarity == 91.7
+
+    # Risk assessment — tamper WARNING (+10) is the only contributor; score=10, level=LOW
     assert 0 <= validated.risk.score <= 100
     assert validated.risk.score == 10
     assert validated.risk.level == RiskLevel.LOW

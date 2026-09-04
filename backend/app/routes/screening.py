@@ -5,7 +5,7 @@ Executes the end-to-end identity screening pipeline:
 2. Real ICAO TD3 MRZ validation (when MRZ is present).
 3. Real document expiry validation.
 4. Real SQLite blacklist screening.
-5. Simulated biometric face match, tamper, and duplicate checks.
+5. Real biometric face match using InsightFace / ONNX.
 6. Real explainable rule-based risk-scoring engine.
 """
 
@@ -30,6 +30,7 @@ from app.models.screening import (
 from app.services.blacklist_checker import check_blacklist
 from app.services.document_extractor import extract_document
 from app.services.expiry_validator import validate_expiry
+from app.services.face_matcher import compare_faces
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
 
@@ -59,6 +60,10 @@ async def screen_identity(
     # 1. Ingest document image bytes for extraction
     document_bytes = await document_image.read()
     mime_type = document_image.content_type or "image/jpeg"
+
+    # 1b. Ingest selfie bytes for face comparison
+    selfie_bytes = await selfie_image.read()
+    selfie_mime_type = selfie_image.content_type or "image/jpeg"
 
     # 2. REAL Structured Document Extraction using Google Gemini API
     extraction_result = extract_document(image_bytes=document_bytes, mime_type=mime_type)
@@ -114,7 +119,20 @@ async def screen_identity(
         match=blacklist_res.get("match"),
     )
 
-    # 6. Assemble checks container (tamper, face match, duplicate identity remain simulated)
+    # 6. REAL Biometric Face Comparison
+    face_res = compare_faces(
+        document_image_bytes=document_bytes,
+        document_mime_type=mime_type,
+        selfie_image_bytes=selfie_bytes,
+        selfie_mime_type=selfie_mime_type,
+    )
+    face_check = FaceMatchCheckResult(
+        status=CheckStatus(face_res["status"]),
+        similarity=face_res.get("similarity"),
+        reason=face_res["reason"],
+    )
+
+    # 7. Assemble checks container (tamper and duplicate identity remain simulated)
     checks = ChecksContainer(
         mrz=mrz_check,
         expiry=expiry_check,
@@ -123,11 +141,7 @@ async def screen_identity(
             risk=32,
             reason="Possible image compression inconsistency",
         ),
-        face_match=FaceMatchCheckResult(
-            status=CheckStatus.PASS,
-            similarity=91.7,
-            reason="Selfie is visually consistent with document portrait",
-        ),
+        face_match=face_check,
         duplicate_identity=DuplicateIdentityCheckResult(
             status=CheckStatus.PASS,
             similar_identity=None,
@@ -136,10 +150,10 @@ async def screen_identity(
         blacklist=blacklist_check,
     )
 
-    # 7. REAL Explainable Risk Engine
+    # 8. REAL Explainable Risk Engine
     risk_evaluation = calculate_risk(checks)
 
-    # 8. Return formal ScreeningResponse
+    # 9. Return formal ScreeningResponse
     return ScreeningResponse(
         screening_id="SCR-2026-0001",
         document=DocumentExtractedData(
