@@ -6,7 +6,10 @@ Executes the end-to-end identity screening pipeline:
 3. Real document expiry validation.
 4. Real SQLite blacklist screening.
 5. Real biometric face match using InsightFace / ONNX.
-6. Real explainable rule-based risk-scoring engine.
+6. Real selfie embedding extraction (InsightFace ArcFace).
+7. Real duplicate identity detection against SQLite embedding store.
+8. Store/update selfie embedding in SQLite for future comparisons.
+9. Real explainable rule-based risk-scoring engine.
 """
 
 from typing import Optional
@@ -29,8 +32,9 @@ from app.models.screening import (
 
 from app.services.blacklist_checker import check_blacklist
 from app.services.document_extractor import extract_document
+from app.services.duplicate_identity_checker import check_duplicate_identity, store_embedding
 from app.services.expiry_validator import validate_expiry
-from app.services.face_matcher import compare_faces
+from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
 
@@ -45,6 +49,7 @@ router = APIRouter()
     description=(
         "Accepts identity document and selfie uploads, executing real Gemini document "
         "extraction, real MRZ verification, real expiry check, real blacklist check, "
+        "real biometric face comparison, real duplicate identity detection, "
         "and explainable risk scoring adhering strictly to the API contract."
     ),
 )
@@ -61,7 +66,7 @@ async def screen_identity(
     document_bytes = await document_image.read()
     mime_type = document_image.content_type or "image/jpeg"
 
-    # 1b. Ingest selfie bytes for face comparison
+    # 1b. Ingest selfie bytes for face comparison and embedding
     selfie_bytes = await selfie_image.read()
     selfie_mime_type = selfie_image.content_type or "image/jpeg"
 
@@ -132,7 +137,33 @@ async def screen_identity(
         reason=face_res["reason"],
     )
 
-    # 7. Assemble checks container (tamper and duplicate identity remain simulated)
+    # 7. Extract selfie embedding for duplicate identity check
+    selfie_embedding = extract_selfie_embedding(
+        selfie_image_bytes=selfie_bytes,
+        selfie_mime_type=selfie_mime_type,
+    )
+
+    # 8. REAL Duplicate Identity Detection
+    dup_res = check_duplicate_identity(
+        document_number=active_doc_number,
+        full_name=doc_info.get("full_name"),
+        embedding=selfie_embedding,
+    )
+    duplicate_check = DuplicateIdentityCheckResult(
+        status=CheckStatus(dup_res["status"]),
+        similar_identity=dup_res.get("similar_identity"),
+        reason=dup_res["reason"],
+    )
+
+    # 9. Store/update embedding after lookup (so lookup uses pre-existing data)
+    if active_doc_number and selfie_embedding is not None:
+        store_embedding(
+            document_number=active_doc_number,
+            full_name=doc_info.get("full_name"),
+            embedding=selfie_embedding,
+        )
+
+    # 10. Assemble checks container (tamper remains simulated)
     checks = ChecksContainer(
         mrz=mrz_check,
         expiry=expiry_check,
@@ -142,18 +173,14 @@ async def screen_identity(
             reason="Possible image compression inconsistency",
         ),
         face_match=face_check,
-        duplicate_identity=DuplicateIdentityCheckResult(
-            status=CheckStatus.PASS,
-            similar_identity=None,
-            reason="No matching face associated with another identity",
-        ),
+        duplicate_identity=duplicate_check,
         blacklist=blacklist_check,
     )
 
-    # 8. REAL Explainable Risk Engine
+    # 11. REAL Explainable Risk Engine
     risk_evaluation = calculate_risk(checks)
 
-    # 9. Return formal ScreeningResponse
+    # 12. Return formal ScreeningResponse
     return ScreeningResponse(
         screening_id="SCR-2026-0001",
         document=DocumentExtractedData(

@@ -306,3 +306,73 @@ def compare_faces(
         "similarity": similarity,
         "reason": reason,
     }
+
+
+def extract_selfie_embedding(
+    selfie_image_bytes: bytes,
+    selfie_mime_type: str,
+):
+    """Extract the primary face embedding from a selfie image.
+
+    Reuses the cached InsightFace ``buffalo_sc`` model. The embedding is
+    returned as a plain Python ``list[float]`` so it can be JSON-serialised
+    for storage.  Embedding values are **never** logged.
+
+    This function is **backend-only**.  It must never be exposed in API
+    responses or serialised into response models.
+
+    Parameters
+    ----------
+    selfie_image_bytes : bytes
+        Raw bytes of the selfie image.
+    selfie_mime_type : str
+        MIME type of the selfie image (e.g. ``"image/jpeg"``).
+
+    Returns
+    -------
+    list[float] or None
+        L2-normalised 512-d ArcFace embedding as a plain Python list, or
+        ``None`` if detection / embedding extraction fails for any reason.
+    """
+    np = _import_numpy()
+
+    try:
+        selfie_bgr = _bytes_to_bgr(selfie_image_bytes, selfie_mime_type)
+    except ValueError as exc:
+        logger.warning("extract_selfie_embedding: cannot decode selfie — %s", exc)
+        return None
+
+    try:
+        app = _get_face_app()
+    except Exception as exc:
+        logger.warning("extract_selfie_embedding: InsightFace unavailable — %s", exc)
+        return None
+
+    try:
+        faces = app.get(selfie_bgr)
+    except Exception as exc:
+        logger.warning("extract_selfie_embedding: detection failed — %s", exc)
+        return None
+
+    if not faces:
+        logger.info("extract_selfie_embedding: no face detected in selfie")
+        return None
+
+    # Select primary face (largest bounding box)
+    def _area(f):
+        bbox = f.bbox
+        return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+
+    primary = max(faces, key=_area)
+    emb = primary.embedding
+
+    if emb is None:
+        logger.warning("extract_selfie_embedding: embedding is None")
+        return None
+
+    # L2-normalise and return as plain Python list (JSON-safe, no numpy dependency downstream)
+    norm = np.linalg.norm(emb)
+    if norm == 0:
+        return emb.tolist()
+    normalised = (emb / norm).astype(float)
+    return normalised.tolist()

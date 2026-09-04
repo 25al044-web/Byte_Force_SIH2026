@@ -100,7 +100,9 @@ export function VerificationCheck({ checks }) {
       title: 'Duplicate Identity',
       data: checks?.duplicate_identity,
       extraMetric: checks?.duplicate_identity?.similar_identity
-        ? `Match: ${checks.duplicate_identity.similar_identity}`
+        ? typeof checks.duplicate_identity.similar_identity === 'object'
+          ? `Match: ${checks.duplicate_identity.similar_identity.document_number || 'Record'}${checks.duplicate_identity.similar_identity.similarity ? ` (${checks.duplicate_identity.similar_identity.similarity}%)` : ''}`
+          : `Match: ${checks.duplicate_identity.similar_identity}`
         : null,
     },
     {

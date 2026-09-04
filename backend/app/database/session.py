@@ -131,6 +131,28 @@ def init_db(db_path: Optional[str] = None) -> None:
             ON blacklist(document_number);
             """
         )
+
+        # Create identity_embeddings table for duplicate detection
+        # Stores ArcFace embeddings as JSON float arrays — no images, no pickles.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS identity_embeddings (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_number TEXT    NOT NULL UNIQUE,
+                full_name       TEXT,
+                embedding       TEXT    NOT NULL,
+                is_active       INTEGER NOT NULL DEFAULT 1,
+                created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT
+            );
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_emb_doc_num
+            ON identity_embeddings(document_number);
+            """
+        )
         conn.commit()
 
         # Seed synthetic records idempotently

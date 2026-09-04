@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.database import init_db
 from app.main import app
 from app.models.screening import (
     BlacklistCheckResult,
@@ -89,10 +90,19 @@ SAMPLE_FACE_PASS = {
     "reason": "Selfie matches document portrait (91.7% similarity)",
 }
 
+SAMPLE_DUP_PASS = {
+    "status": "PASS",
+    "similar_identity": None,
+    "reason": "No highly similar face found under another identity document",
+}
 
+
+@patch("app.routes.screening.store_embedding", return_value=True)
+@patch("app.routes.screening.check_duplicate_identity", return_value=SAMPLE_DUP_PASS)
+@patch("app.routes.screening.extract_selfie_embedding", return_value=[0.0] * 512)
 @patch("app.routes.screening.compare_faces", return_value=SAMPLE_FACE_PASS)
 @patch("app.routes.screening.extract_document", return_value=SAMPLE_PASSPORT_EXTRACTION)
-def test_screen_endpoint_success(mock_extract, mock_face):
+def test_screen_endpoint_success(mock_extract, mock_face, mock_emb, mock_dup, mock_store):
     """Verify POST /api/screen returns 200 and conforms to the API contract with passport."""
     files = {
         "document_image": ("passport.jpg", io.BytesIO(b"fake_doc_image_bytes"), "image/jpeg"),
@@ -130,6 +140,10 @@ def test_screen_endpoint_success(mock_extract, mock_face):
     assert checks.face_match.status == CheckStatus.PASS
     assert checks.face_match.similarity == 91.7
 
+    # Duplicate identity check (mocked PASS)
+    assert checks.duplicate_identity.status == CheckStatus.PASS
+    assert checks.duplicate_identity.similar_identity is None
+
     # Risk assessment — tamper WARNING (+10) is the only contributor; score=10, level=LOW
     assert 0 <= validated.risk.score <= 100
     assert validated.risk.score == 10
@@ -137,8 +151,13 @@ def test_screen_endpoint_success(mock_extract, mock_face):
     assert len(validated.explanations) >= 6
 
 
+
+@patch("app.routes.screening.store_embedding", return_value=True)
+@patch("app.routes.screening.check_duplicate_identity", return_value=SAMPLE_DUP_PASS)
+@patch("app.routes.screening.extract_selfie_embedding", return_value=None)
+@patch("app.routes.screening.compare_faces", return_value={"status": "NOT_AVAILABLE", "similarity": None, "reason": "No face detected"})
 @patch("app.routes.screening.extract_document", return_value=SAMPLE_STUDENT_ID_EXTRACTION)
-def test_screen_endpoint_with_student_id_no_mrz(mock_extract):
+def test_screen_endpoint_with_student_id_no_mrz(mock_extract, mock_face, mock_emb, mock_dup, mock_store):
     """Verify generic student/college ID without MRZ yields NOT_AVAILABLE (not FAIL)."""
     files = {
         "document_image": ("student_id.png", io.BytesIO(b"fake_id_image_bytes"), "image/png"),
@@ -273,3 +292,99 @@ def test_pydantic_schema_invalid_risk_level():
     """Verify that an invalid risk level raises a ValidationError."""
     with pytest.raises(ValidationError):
         RiskAssessment(score=50, level="EXTREME")  # type: ignore[arg-type]
+
+
+def test_screen_endpoint_duplicate_identity_workflow(tmp_path, monkeypatch):
+    """Verify scanning DEMO-A then DEMO-B with same face flags duplicate FAIL with risk >= 75."""
+    test_db = str(tmp_path / "screening_test.db")
+    init_db(test_db)
+    monkeypatch.setenv("DATABASE_URL", test_db)
+
+    # Unit face embedding (512-dim)
+    face_emb = [0.0] * 512
+    face_emb[0] = 1.0
+
+    extraction_a = {
+        "success": True,
+        "document": {
+            "document_type": "national_id",
+            "full_name": "DEMO PERSON A",
+            "document_number": "DEMO-A",
+            "nationality": "IND",
+            "date_of_birth": "1990-01-01",
+            "expiry_date": "2030-01-01",
+            "sex": "M",
+        },
+        "mrz_line_1": None,
+        "mrz_line_2": None,
+        "warnings": [],
+    }
+
+    extraction_b = {
+        "success": True,
+        "document": {
+            "document_type": "national_id",
+            "full_name": "DEMO PERSON B",
+            "document_number": "DEMO-B",
+            "nationality": "IND",
+            "date_of_birth": "1992-02-02",
+            "expiry_date": "2030-01-01",
+            "sex": "M",
+        },
+        "mrz_line_1": None,
+        "mrz_line_2": None,
+        "warnings": [],
+    }
+
+    # First scan: DEMO-A with face_emb -> PASS
+    with patch("app.routes.screening.compare_faces", return_value={"status": "PASS", "similarity": 95.0, "reason": "Selfie matches document"}), \
+         patch("app.routes.screening.extract_selfie_embedding", return_value=face_emb), \
+         patch("app.routes.screening.extract_document", return_value=extraction_a):
+        files = {
+            "document_image": ("doc.jpg", io.BytesIO(b"fake_doc"), "image/jpeg"),
+            "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie"), "image/jpeg"),
+        }
+        resp1 = client.post("/api/screen", files=files)
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["checks"]["duplicate_identity"]["status"] == "PASS"
+        assert data1["checks"]["duplicate_identity"]["similar_identity"] is None
+
+        # Confirm no raw embeddings in response!
+        assert "embedding" not in str(data1)
+        assert "face_embedding" not in str(data1)
+
+    # Re-scan with SAME document DEMO-A and SAME face -> must remain PASS
+    with patch("app.routes.screening.compare_faces", return_value={"status": "PASS", "similarity": 95.0, "reason": "Selfie matches document"}), \
+         patch("app.routes.screening.extract_selfie_embedding", return_value=face_emb), \
+         patch("app.routes.screening.extract_document", return_value=extraction_a):
+        files = {
+            "document_image": ("doc.jpg", io.BytesIO(b"fake_doc"), "image/jpeg"),
+            "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie"), "image/jpeg"),
+        }
+        resp_same = client.post("/api/screen", files=files)
+        assert resp_same.status_code == 200
+        data_same = resp_same.json()
+        assert data_same["checks"]["duplicate_identity"]["status"] == "PASS"
+
+    # Scan with DIFFERENT document DEMO-B and SAME face -> must FAIL with high risk
+    with patch("app.routes.screening.compare_faces", return_value={"status": "PASS", "similarity": 95.0, "reason": "Selfie matches document"}), \
+         patch("app.routes.screening.extract_selfie_embedding", return_value=face_emb), \
+         patch("app.routes.screening.extract_document", return_value=extraction_b):
+        files = {
+            "document_image": ("doc.jpg", io.BytesIO(b"fake_doc"), "image/jpeg"),
+            "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie"), "image/jpeg"),
+        }
+        resp2 = client.post("/api/screen", files=files)
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["checks"]["duplicate_identity"]["status"] == "FAIL"
+        assert data2["checks"]["duplicate_identity"]["similar_identity"]["document_number"] == "DEMO-A"
+        assert data2["checks"]["duplicate_identity"]["similar_identity"]["similarity"] >= 90.0
+        assert data2["risk"]["level"] == "HIGH"
+        assert data2["risk"]["score"] >= 75
+        assert "Highly similar face detected under a different identity document" in data2["checks"]["duplicate_identity"]["reason"]
+
+        # Confirm no raw embeddings in response!
+        assert "embedding" not in str(data2)
+        assert "face_embedding" not in str(data2)
