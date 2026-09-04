@@ -1,3 +1,15 @@
-from app.database.session import get_db_connection, init_db
+"""Database package for SQLite connection and schema management."""
 
-__all__ = ["get_db_connection", "init_db"]
+from app.database.session import (
+    SYNTHETIC_BLACKLIST_SEEDS,
+    get_db_connection,
+    init_db,
+    seed_blacklist_data,
+)
+
+__all__ = [
+    "SYNTHETIC_BLACKLIST_SEEDS",
+    "get_db_connection",
+    "init_db",
+    "seed_blacklist_data",
+]

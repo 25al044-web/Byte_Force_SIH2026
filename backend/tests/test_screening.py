@@ -64,19 +64,61 @@ def test_screen_endpoint_success():
         assert isinstance(check_obj.reason, str) and len(check_obj.reason) > 0
 
     # Specific check fields
+    assert checks.mrz.status == CheckStatus.PASS
+    assert checks.mrz.score == 0
+    assert checks.mrz.reason == "All MRZ checksums are valid"
+    assert checks.mrz.details is not None
+    assert checks.mrz.details["composite_valid"] is True
     assert checks.tamper.risk == 32
     assert checks.face_match.similarity == 91.7
     assert checks.duplicate_identity.similar_identity is None
+    # Blacklist check dynamically evaluated by SQLite blacklist service
+    assert checks.blacklist.status == CheckStatus.PASS
+    assert "not found in demonstration blacklist" in checks.blacklist.reason
+    assert checks.blacklist.match is None
 
-    # Validate risk assessment
+    # Validate dynamic risk assessment computed by risk_engine
     assert 0 <= validated.risk.score <= 100
     assert isinstance(validated.risk.score, int)
     assert validated.risk.level.value in ALLOWED_RISK_LEVELS
+    # For default mock inputs (tamper risk 32 adds +10, rest 0), score is 10 and level is LOW
+    assert validated.risk.score == 10
+    assert validated.risk.level == RiskLevel.LOW
 
     # Validate explanations
     assert isinstance(validated.explanations, list)
-    assert len(validated.explanations) > 0
-    assert all(isinstance(exp, str) for exp in validated.explanations)
+    assert len(validated.explanations) >= 6
+    assert all(isinstance(exp, str) and len(exp.strip()) > 0 for exp in validated.explanations)
+    assert any("Tamper screening detected minor anomaly" in exp for exp in validated.explanations)
+
+
+def test_screen_endpoint_with_blacklisted_document():
+    """Verify that a blacklisted document triggers FAIL and activates the risk engine override."""
+    files = {
+        "document_image": ("passport.jpg", io.BytesIO(b"fake_doc_image_bytes"), "image/jpeg"),
+        "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie_image_bytes"), "image/jpeg"),
+    }
+    response = client.post("/api/screen?doc_number_override=TEST0001", files=files)
+    assert response.status_code == 200
+
+    data = response.json()
+    validated = ScreeningResponse.model_validate(data)
+
+    # Document number should match the override
+    assert validated.document.document_number == "TEST0001"
+
+    # Blacklist check must report FAIL
+    assert validated.checks.blacklist.status == CheckStatus.FAIL
+    assert "matched active demonstration blacklist record" in validated.checks.blacklist.reason
+    assert validated.checks.blacklist.match is not None
+    assert validated.checks.blacklist.match["document_number"] == "TEST0001"
+    assert validated.checks.blacklist.match["severity"] == "HIGH"
+
+    # Risk Engine must trigger critical override to at least 85 and HIGH risk level
+    assert validated.risk.score >= 85
+    assert validated.risk.level == RiskLevel.HIGH
+    assert any("Blacklist match triggered minimum high-risk threshold (85)" in exp for exp in validated.explanations)
+    assert any("Document/identity found on blacklist: +70 risk." in exp for exp in validated.explanations)
 
 
 def test_screen_endpoint_missing_document_image():

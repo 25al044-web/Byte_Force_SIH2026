@@ -1,7 +1,7 @@
 """Screening models and schema definitions for SIH26188."""
 
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -43,6 +43,7 @@ class MRZCheckResult(BaseModel):
     status: CheckStatus
     score: Optional[Union[int, float]] = None
     reason: str
+    details: Optional[Dict[str, bool]] = None
 
 
 class ExpiryCheckResult(BaseModel):
@@ -87,6 +88,7 @@ class BlacklistCheckResult(BaseModel):
 
     status: CheckStatus
     reason: str
+    match: Optional[Dict[str, Any]] = None
 
 
 class ChecksContainer(BaseModel):
