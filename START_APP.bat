@@ -1,85 +1,70 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
-title SIH26188 - Screening System Launcher
+title SIH26188 Launcher
 
-echo =========================================================================
-echo   SIH26188: AI-Based Fake Identity & Document Screening System
-echo   Hackathon Startup Launcher
-echo =========================================================================
+REM Project root = folder containing this BAT file
+set "ROOT=%~dp0"
+
+echo.
+echo ==========================================
+echo   SIH26188 Identity Screening System
+echo ==========================================
 echo.
 
-set "ROOT_DIR=%~dp0"
-cd /d "%ROOT_DIR%"
-
-echo [*] Verifying project environment...
-
-:: 1. Check Python virtual environment
-if not exist "%ROOT_DIR%backend\.venv\Scripts\python.exe" (
-    echo [!] ERROR: Backend Python virtual environment not found!
-    echo     Expected location: %ROOT_DIR%backend\.venv
+REM -----------------------------
+REM CHECK BACKEND
+REM -----------------------------
+if not exist "%ROOT%backend\.venv\Scripts\python.exe" (
+    echo [ERROR] Backend virtual environment not found:
+    echo %ROOT%backend\.venv
     echo.
-    echo     Setup instructions:
-    echo       1. cd backend
-    echo       2. python -m venv .venv
-    echo       3. .\.venv\Scripts\pip install -r requirements.txt
+    echo Create it first inside backend.
+    pause
+    exit /b 1
+)
+
+REM -----------------------------
+REM CHECK FRONTEND
+REM -----------------------------
+if not exist "%ROOT%frontend\node_modules" (
+    echo [ERROR] frontend\node_modules not found.
+    echo.
+    echo Run:
+    echo cd frontend
+    echo npm install
     echo.
     pause
     exit /b 1
 )
 
-:: 2. Check Frontend node_modules
-if not exist "%ROOT_DIR%frontend\node_modules" (
-    echo [!] ERROR: Frontend dependencies not found!
-    echo     Expected location: %ROOT_DIR%frontend\node_modules
-    echo.
-    echo     Setup instructions:
-    echo       1. cd frontend
-    echo       2. npm install
-    echo.
-    pause
-    exit /b 1
-)
+echo [1/4] Starting FastAPI backend...
 
-echo [OK] Backend environment verified (.venv).
-echo [OK] Frontend dependencies verified (node_modules).
-echo.
+start "SIH26188 Backend" /D "%ROOT%backend" cmd /k ".venv\Scripts\python.exe -m uvicorn app.main:app --reload"
 
-:: 3. Check InsightFace local model cache
-set "INSIGHTFACE_MODEL=%USERPROFILE%\.insightface\models\buffalo_sc"
-if exist "%INSIGHTFACE_MODEL%" (
-    echo [OK] InsightFace model cache verified (buffalo_sc ready).
-) else (
-    echo [!] NOTE: InsightFace model not yet cached locally.
-    echo     First face comparison will download buffalo_sc (~100MB).
-)
-echo.
-
-:: 4. Start FastAPI Backend
-echo [*] Starting FastAPI screening backend on http://127.0.0.1:8000 ...
-start "SIH26188-Backend" cmd /k "cd /d "%ROOT_DIR%backend" && .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
-
-:: 5. Start React Vite Frontend
-echo [*] Starting Vite frontend server on http://localhost:5173 ...
-start "SIH26188-Frontend" cmd /k "cd /d "%ROOT_DIR%frontend" && npm run dev"
-
-:: 6. Wait for servers to initialize
-echo [*] Waiting for services to initialize...
+echo [2/4] Waiting for backend...
 timeout /t 4 /nobreak >nul
 
-:: 7. Launch default web browser
-echo [*] Opening screening dashboard in web browser...
-start http://localhost:5173
+echo [3/4] Starting React frontend...
+
+start "SIH26188 Frontend" /D "%ROOT%frontend" cmd /k "npm run dev"
+
+echo [4/4] Opening browser...
+timeout /t 4 /nobreak >nul
+
+start "" "http://localhost:5173"
 
 echo.
-echo =========================================================================
-echo   SYSTEM READY FOR SCREENING DEMO!
-echo =========================================================================
-echo   Dashboard UI : http://localhost:5173
-echo   API Health   : http://127.0.0.1:8000/api/health
-echo   API Docs     : http://127.0.0.1:8000/docs
+echo ==========================================
+echo   SIH26188 STARTED
+echo ==========================================
 echo.
-echo   To stop all servers, run: STOP_APP.bat
-echo =========================================================================
+echo Backend : http://127.0.0.1:8000
+echo Swagger : http://127.0.0.1:8000/docs
+echo Frontend: http://localhost:5173
 echo.
-pause
+echo Keep the Backend and Frontend windows open.
+echo.
+
+timeout /t 3 /nobreak >nul
+exit /b 0

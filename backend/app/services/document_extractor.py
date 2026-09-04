@@ -9,15 +9,26 @@ import json
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+# Ensure .env is loaded from backend/.env or repo root
+_env_backend = Path(__file__).resolve().parent.parent.parent / ".env"
+_env_root = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+if _env_backend.exists():
+    load_dotenv(_env_backend)
+elif _env_root.exists():
+    load_dotenv(_env_root)
 
 # Google GenAI SDK
 from google import genai
 from google.genai import types
 
 SUPPORTED_MIME_TYPES = ("image/jpeg", "image/png")
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3.7-flash"]
 
 ALLOWED_DOCUMENT_TYPES = {
     "passport",
@@ -115,6 +126,68 @@ CRITICAL RULES:
    - document_number: preserve exact alphanumeric string except trimming whitespace.
    - mrz_line_1 & mrz_line_2: if a Machine Readable Zone is visible, transcribe the exact 44 characters per line (A-Z, 0-9, '<'). If no MRZ exists, return null for both lines.
 """
+
+# Simplified OpenAPI-compliant JSON Schema with nullable fields for robust Gemini structured generation
+SIMPLIFIED_DOCUMENT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "document_type": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "One of: passport, visa, national_id, employee_id, student_id, driving_licence, residence_permit, travel_document, unknown.",
+        },
+        "full_name": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Full name of document holder visibly printed on the document.",
+        },
+        "document_number": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Official document number, roll/registration number, or unique ID string.",
+        },
+        "nationality": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "3-letter ICAO country code (e.g. IND, USA, GBR) if clearly present, else null.",
+        },
+        "date_of_birth": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Date of birth in YYYY-MM-DD format if visible, else null.",
+        },
+        "expiry_date": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Expiration/validity date in YYYY-MM-DD format if visible, else null.",
+        },
+        "sex": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Gender/sex visibly indicated: M, F, X, or null.",
+        },
+        "issuing_authority": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Issuing country or governmental authority if visible.",
+        },
+        "institution_or_organization": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "School, college, university, or corporate employer name if applicable.",
+        },
+        "mrz_line_1": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Exact 44-character line 1 of TD3 MRZ if present, else null.",
+        },
+        "mrz_line_2": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "Exact 44-character line 2 of TD3 MRZ if present, else null.",
+        },
+    },
+}
 
 
 def _normalize_date(date_str: Optional[str]) -> Optional[str]:
@@ -218,62 +291,106 @@ def extract_document(
         except Exception as exc:
             return _build_empty_response([f"Failed to initialize Gemini client: {str(exc)}"])
 
-    # 4. Prepare request payload
-    try:
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-        response = ai_client.models.generate_content(
-            model=DEFAULT_MODEL,
-            contents=[image_part, EXTRACTION_PROMPT],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=ExtractedIdentitySchema.model_json_schema(),
-                temperature=0.0,
-            ),
-        )
-    except Exception as exc:
-        return _build_empty_response([f"Gemini extraction API call failed: {str(exc)}"])
+    # 4. Prepare and execute extraction API call
+    response = None
+    last_error = None
+    models_to_try = [DEFAULT_MODEL] if client is not None else [DEFAULT_MODEL] + FALLBACK_MODELS
 
-    # 5. Parse response JSON
-    try:
+    for model_name in models_to_try:
+        try:
+            image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+            response = ai_client.models.generate_content(
+                model=model_name,
+                contents=[image_part, EXTRACTION_PROMPT],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=SIMPLIFIED_DOCUMENT_SCHEMA,
+                    temperature=0.0,
+                ),
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if client is not None:
+                break
+            err_str = str(exc)
+            # Only try next model on transient quota exhaustion or service overload
+            if (
+                "503" not in err_str
+                and "429" not in err_str
+                and "UNAVAILABLE" not in err_str
+                and "RESOURCE_EXHAUSTED" not in err_str
+            ):
+                break
+
+    if last_error is not None and response is None:
+        return _build_empty_response([f"Gemini extraction API call failed: {str(last_error)}"])
+
+    # 5. Parse response JSON (check response.parsed first, fallback to response.text)
+    parsed_data = None
+    if hasattr(response, "parsed") and response.parsed is not None:
+        if isinstance(response.parsed, dict):
+            parsed_data = response.parsed
+        elif isinstance(response.parsed, BaseModel):
+            parsed_data = response.parsed.model_dump()
+        elif hasattr(response.parsed, "__dict__"):
+            parsed_data = vars(response.parsed)
+
+    if not parsed_data:
         raw_text = response.text if hasattr(response, "text") else ""
         if not raw_text or not raw_text.strip():
             return _build_empty_response(["Gemini API returned an empty response"])
 
-        parsed_data = json.loads(raw_text)
-    except Exception as exc:
-        return _build_empty_response([f"Failed to parse Gemini JSON output: {str(exc)}"])
+        cleaned_text = raw_text.strip()
+        if cleaned_text.startswith("```"):
+            cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
+            cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
+        try:
+            parsed_data = json.loads(cleaned_text)
+        except Exception as exc:
+            return _build_empty_response([f"Failed to parse Gemini JSON output: {str(exc)}"])
+
+    # Validate with Pydantic model
+    try:
+        validated_schema = ExtractedIdentitySchema.model_validate(parsed_data)
+        parsed_dict = validated_schema.model_dump()
+    except Exception:
+        parsed_dict = parsed_data if isinstance(parsed_data, dict) else {}
 
     # 6. Normalize fields
-    doc_type = _normalize_doc_type(parsed_data.get("document_type"))
-    dob = _normalize_date(parsed_data.get("date_of_birth"))
-    expiry = _normalize_date(parsed_data.get("expiry_date"))
+    doc_type = _normalize_doc_type(parsed_dict.get("document_type"))
+    dob = _normalize_date(parsed_dict.get("date_of_birth"))
+    expiry = _normalize_date(parsed_dict.get("expiry_date"))
 
-    raw_sex = parsed_data.get("sex")
+    raw_sex = parsed_dict.get("sex")
     sex = None
     if raw_sex and isinstance(raw_sex, str):
         clean_sex = raw_sex.strip().upper()
         if clean_sex in ("M", "F", "X"):
             sex = clean_sex
 
-    raw_nat = parsed_data.get("nationality")
+    raw_nat = parsed_dict.get("nationality")
     nationality = None
     if raw_nat and isinstance(raw_nat, str):
         clean_nat = raw_nat.strip().upper()
         if len(clean_nat) == 3 and clean_nat.isalpha():
             nationality = clean_nat
 
-    raw_doc_num = parsed_data.get("document_number")
-    document_number = raw_doc_num.strip() if raw_doc_num and isinstance(raw_doc_num, str) else None
+    raw_doc_num = parsed_dict.get("document_number")
+    document_number = (
+        raw_doc_num.strip() if raw_doc_num and isinstance(raw_doc_num, str) else None
+    )
     if document_number and document_number.lower() in ("null", "none", "n/a"):
         document_number = None
 
-    raw_name = parsed_data.get("full_name")
+    raw_name = parsed_dict.get("full_name")
     full_name = raw_name.strip() if raw_name and isinstance(raw_name, str) else None
     if full_name and full_name.lower() in ("null", "none", "n/a"):
         full_name = None
 
-    mrz_1 = _normalize_mrz_line(parsed_data.get("mrz_line_1"))
-    mrz_2 = _normalize_mrz_line(parsed_data.get("mrz_line_2"))
+    mrz_1 = _normalize_mrz_line(parsed_dict.get("mrz_line_1"))
+    mrz_2 = _normalize_mrz_line(parsed_dict.get("mrz_line_2"))
 
     warnings = []
     if not mrz_1 or not mrz_2:
@@ -289,8 +406,8 @@ def extract_document(
             "date_of_birth": dob,
             "expiry_date": expiry,
             "sex": sex,
-            "issuing_authority": parsed_data.get("issuing_authority"),
-            "institution_or_organization": parsed_data.get("institution_or_organization"),
+            "issuing_authority": parsed_dict.get("issuing_authority"),
+            "institution_or_organization": parsed_dict.get("institution_or_organization"),
         },
         "mrz_line_1": mrz_1,
         "mrz_line_2": mrz_2,
