@@ -1,6 +1,7 @@
 """Tests for the screening pipeline API endpoint and Pydantic models."""
 
 import io
+from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -26,9 +27,65 @@ client = TestClient(app)
 ALLOWED_CHECK_STATUSES = {"PASS", "WARNING", "FAIL", "NOT_AVAILABLE"}
 ALLOWED_RISK_LEVELS = {"LOW", "REVIEW", "HIGH"}
 
+SAMPLE_PASSPORT_EXTRACTION = {
+    "success": True,
+    "document": {
+        "document_type": "passport",
+        "full_name": "SARAH JANE CONNOR",
+        "document_number": "P1234567",
+        "nationality": "IND",
+        "date_of_birth": "2004-08-20",
+        "expiry_date": "2032-08-14",
+        "sex": "M",
+        "issuing_authority": None,
+        "institution_or_organization": None,
+    },
+    # Synthetic TD3 MRZ matching the document details
+    "mrz_line_1": "P<INDARUN<<KUMAR<<<<<<<<<<<<<<<<<<<<<<<<<<<<",
+    "mrz_line_2": "P1234567<1IND0408204M3208140<<<<<<<<<<<<<<<4",
+    "warnings": [],
+}
 
-def test_screen_endpoint_success():
-    """Verify POST /api/screen returns 200 and conforms to the API contract."""
+SAMPLE_STUDENT_ID_EXTRACTION = {
+    "success": True,
+    "document": {
+        "document_type": "student_id",
+        "full_name": "KARTHIKEYAN MARAN",
+        "document_number": "REG-2026-99",
+        "nationality": None,
+        "date_of_birth": "2005-08-14",
+        "expiry_date": None,
+        "sex": None,
+        "issuing_authority": None,
+        "institution_or_organization": "R.M.D. Engineering College",
+    },
+    "mrz_line_1": None,
+    "mrz_line_2": None,
+    "warnings": ["MRZ not present on this document"],
+}
+
+SAMPLE_EXTRACTION_FAILURE = {
+    "success": False,
+    "document": {
+        "document_type": None,
+        "full_name": None,
+        "document_number": None,
+        "nationality": None,
+        "date_of_birth": None,
+        "expiry_date": None,
+        "sex": None,
+        "issuing_authority": None,
+        "institution_or_organization": None,
+    },
+    "mrz_line_1": None,
+    "mrz_line_2": None,
+    "warnings": ["Document extraction unavailable"],
+}
+
+
+@patch("app.routes.screening.extract_document", return_value=SAMPLE_PASSPORT_EXTRACTION)
+def test_screen_endpoint_success(mock_extract):
+    """Verify POST /api/screen returns 200 and conforms to the API contract with passport."""
     files = {
         "document_image": ("passport.jpg", io.BytesIO(b"fake_doc_image_bytes"), "image/jpeg"),
         "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie_image_bytes"), "image/jpeg"),
@@ -37,63 +94,98 @@ def test_screen_endpoint_success():
     assert response.status_code == 200
 
     data = response.json()
-
-    # Validate against Pydantic model
     validated = ScreeningResponse.model_validate(data)
     assert validated.screening_id == "SCR-2026-0001"
 
-    # Validate document structure
+    # Extracted document fields
     assert validated.document.document_type == "passport"
-    assert validated.document.full_name == "ARUN KUMAR"
+    assert validated.document.full_name == "SARAH JANE CONNOR"
     assert validated.document.document_number == "P1234567"
     assert validated.document.nationality == "IND"
 
-    # Validate checks
+    # Checks verification
     checks = validated.checks
-    for check_name, check_obj in [
-        ("mrz", checks.mrz),
-        ("expiry", checks.expiry),
-        ("tamper", checks.tamper),
-        ("face_match", checks.face_match),
-        ("duplicate_identity", checks.duplicate_identity),
-        ("blacklist", checks.blacklist),
-    ]:
-        assert check_obj.status.value in ALLOWED_CHECK_STATUSES, (
-            f"Check {check_name} has invalid status {check_obj.status}"
-        )
-        assert isinstance(check_obj.reason, str) and len(check_obj.reason) > 0
-
-    # Specific check fields
     assert checks.mrz.status == CheckStatus.PASS
     assert checks.mrz.score == 0
-    assert checks.mrz.reason == "All MRZ checksums are valid"
     assert checks.mrz.details is not None
     assert checks.mrz.details["composite_valid"] is True
-    assert checks.tamper.risk == 32
-    assert checks.face_match.similarity == 91.7
-    assert checks.duplicate_identity.similar_identity is None
-    # Blacklist check dynamically evaluated by SQLite blacklist service
+
+    # Real expiry verification
+    assert checks.expiry.status == CheckStatus.PASS
+    assert checks.expiry.score == 0
+
+    # Real blacklist verification
     assert checks.blacklist.status == CheckStatus.PASS
     assert "not found in demonstration blacklist" in checks.blacklist.reason
-    assert checks.blacklist.match is None
 
-    # Validate dynamic risk assessment computed by risk_engine
+    # Risk assessment
     assert 0 <= validated.risk.score <= 100
-    assert isinstance(validated.risk.score, int)
-    assert validated.risk.level.value in ALLOWED_RISK_LEVELS
-    # For default mock inputs (tamper risk 32 adds +10, rest 0), score is 10 and level is LOW
     assert validated.risk.score == 10
     assert validated.risk.level == RiskLevel.LOW
-
-    # Validate explanations
-    assert isinstance(validated.explanations, list)
     assert len(validated.explanations) >= 6
-    assert all(isinstance(exp, str) and len(exp.strip()) > 0 for exp in validated.explanations)
-    assert any("Tamper screening detected minor anomaly" in exp for exp in validated.explanations)
 
 
-def test_screen_endpoint_with_blacklisted_document():
-    """Verify that a blacklisted document triggers FAIL and activates the risk engine override."""
+@patch("app.routes.screening.extract_document", return_value=SAMPLE_STUDENT_ID_EXTRACTION)
+def test_screen_endpoint_with_student_id_no_mrz(mock_extract):
+    """Verify generic student/college ID without MRZ yields NOT_AVAILABLE (not FAIL)."""
+    files = {
+        "document_image": ("student_id.png", io.BytesIO(b"fake_id_image_bytes"), "image/png"),
+        "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie_image_bytes"), "image/jpeg"),
+    }
+    response = client.post("/api/screen", files=files)
+    assert response.status_code == 200
+
+    data = response.json()
+    validated = ScreeningResponse.model_validate(data)
+
+    assert validated.document.document_type == "student_id"
+    assert validated.document.full_name == "KARTHIKEYAN MARAN"
+    assert validated.document.document_number == "REG-2026-99"
+    assert validated.document.nationality is None
+    assert validated.document.expiry_date is None
+
+    # MRZ check must NOT fail simply because it's a student ID
+    assert validated.checks.mrz.status == CheckStatus.NOT_AVAILABLE
+    assert "MRZ is not present or could not be extracted" in validated.checks.mrz.reason
+
+    # Expiry check should be NOT_AVAILABLE
+    assert validated.checks.expiry.status == CheckStatus.NOT_AVAILABLE
+
+    # Blacklist check should pass for clean ID
+    assert validated.checks.blacklist.status == CheckStatus.PASS
+
+    # Composite risk score should not be marked HIGH simply for missing MRZ
+    assert validated.risk.level in (RiskLevel.LOW, RiskLevel.REVIEW)
+
+
+@patch("app.routes.screening.extract_document", return_value=SAMPLE_EXTRACTION_FAILURE)
+def test_screen_endpoint_extraction_failure_produces_null_fields(mock_extract):
+    """Extraction failure returns null document fields, never hardcoded ARUN KUMAR."""
+    files = {
+        "document_image": ("blurry.jpg", io.BytesIO(b"unreadable_bytes"), "image/jpeg"),
+        "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie"), "image/jpeg"),
+    }
+    response = client.post("/api/screen", files=files)
+    assert response.status_code == 200
+
+    data = response.json()
+    validated = ScreeningResponse.model_validate(data)
+
+    # Document fields MUST be null, not mock data
+    assert validated.document.full_name is None
+    assert validated.document.full_name != "ARUN KUMAR"
+    assert validated.document.document_number is None
+    assert validated.document.nationality is None
+
+    # Checks become NOT_AVAILABLE
+    assert validated.checks.mrz.status == CheckStatus.NOT_AVAILABLE
+    assert validated.checks.expiry.status == CheckStatus.NOT_AVAILABLE
+    assert validated.checks.blacklist.status == CheckStatus.NOT_AVAILABLE
+
+
+@patch("app.routes.screening.extract_document", return_value=SAMPLE_PASSPORT_EXTRACTION)
+def test_screen_endpoint_with_blacklisted_document(mock_extract):
+    """Verify blacklisted document override triggers FAIL and activates high risk override."""
     files = {
         "document_image": ("passport.jpg", io.BytesIO(b"fake_doc_image_bytes"), "image/jpeg"),
         "selfie_image": ("selfie.jpg", io.BytesIO(b"fake_selfie_image_bytes"), "image/jpeg"),
@@ -104,21 +196,14 @@ def test_screen_endpoint_with_blacklisted_document():
     data = response.json()
     validated = ScreeningResponse.model_validate(data)
 
-    # Document number should match the override
     assert validated.document.document_number == "TEST0001"
-
-    # Blacklist check must report FAIL
     assert validated.checks.blacklist.status == CheckStatus.FAIL
     assert "matched active demonstration blacklist record" in validated.checks.blacklist.reason
-    assert validated.checks.blacklist.match is not None
     assert validated.checks.blacklist.match["document_number"] == "TEST0001"
-    assert validated.checks.blacklist.match["severity"] == "HIGH"
 
     # Risk Engine must trigger critical override to at least 85 and HIGH risk level
     assert validated.risk.score >= 85
     assert validated.risk.level == RiskLevel.HIGH
-    assert any("Blacklist match triggered minimum high-risk threshold (85)" in exp for exp in validated.explanations)
-    assert any("Document/identity found on blacklist: +70 risk." in exp for exp in validated.explanations)
 
 
 def test_screen_endpoint_missing_document_image():

@@ -1,11 +1,12 @@
-"""Screening route endpoint.
+"""Screening route endpoint for SIH26188.
 
-MOCK / DEVELOPMENT IMPLEMENTATION:
-This endpoint returns realistic mock data adhering strictly to the formal
-API contract defined in docs/API_CONTRACT.md.
-Real AI pipelines (OCR, MRZ parser, tamper detection, face biometric matching,
-Gemini multimodal reasoning) are NOT implemented in this phase and will be
-integrated in subsequent milestones.
+Executes the end-to-end identity screening pipeline:
+1. Real Google Gemini document identity and MRZ extraction.
+2. Real ICAO TD3 MRZ validation (when MRZ is present).
+3. Real document expiry validation.
+4. Real SQLite blacklist screening.
+5. Simulated biometric face match, tamper, and duplicate checks.
+6. Real explainable rule-based risk-scoring engine.
 """
 
 from typing import Optional
@@ -27,15 +28,10 @@ from app.models.screening import (
 )
 
 from app.services.blacklist_checker import check_blacklist
+from app.services.document_extractor import extract_document
+from app.services.expiry_validator import validate_expiry
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
-
-# TEMPORARY DEVELOPMENT BRIDGE:
-# Real OCR/multimodal document extraction is not implemented yet.
-# We use a synthetic development TD3 MRZ matching the mock extracted document:
-# Name: ARUN KUMAR, Country: IND, Doc#: P1234567, DOB: 040820, Expiry: 320814, Sex: M
-DEV_SYNTHETIC_MRZ_LINE_1 = "P<INDARUN<<KUMAR<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-DEV_SYNTHETIC_MRZ_LINE_2 = "P1234567<1IND0408204M3208140<<<<<<<<<<<<<<<4"
 
 router = APIRouter()
 
@@ -44,10 +40,11 @@ router = APIRouter()
     "/screen",
     response_model=ScreeningResponse,
     status_code=status.HTTP_200_OK,
-    summary="Screen Document and Selfie (MOCK / DEVELOPMENT)",
+    summary="Screen Document and Selfie",
     description=(
-        "Accepts identity document and selfie uploads, returning simulated screening "
-        "results adhering strictly to the API contract. MARKED AS MOCK / DEVELOPMENT."
+        "Accepts identity document and selfie uploads, executing real Gemini document "
+        "extraction, real MRZ verification, real expiry check, real blacklist check, "
+        "and explainable risk scoring adhering strictly to the API contract."
     ),
 )
 async def screen_identity(
@@ -58,31 +55,58 @@ async def screen_identity(
         description="Optional development parameter to test specific document numbers against blacklist",
     ),
 ) -> ScreeningResponse:
-    """Mock implementation of the identity and document screening pipeline.
+    """Execute identity and document screening pipeline."""
+    # 1. Ingest document image bytes for extraction
+    document_bytes = await document_image.read()
+    mime_type = document_image.content_type or "image/jpeg"
 
-    WARNING: MOCK / DEVELOPMENT ONLY.
-    Note: MRZ verification is running the REAL ICAO TD3 validator, blacklist
-    screening is running against the REAL SQLite database, and the risk assessment
-    is evaluated by the REAL explainable risk engine.
-    """
-    # Active document number for screening (defaults to standard mock passport)
-    active_doc_number = doc_number_override.strip().upper() if doc_number_override else "P1234567"
+    # 2. REAL Structured Document Extraction using Google Gemini API
+    extraction_result = extract_document(image_bytes=document_bytes, mime_type=mime_type)
+    doc_info = extraction_result.get("document", {})
 
-    # Execute REAL MRZ validator on synthetic development bridge MRZ
-    mrz_validation = validate_td3_mrz(DEV_SYNTHETIC_MRZ_LINE_1, DEV_SYNTHETIC_MRZ_LINE_2)
-    mrz_check = MRZCheckResult(
-        status=CheckStatus(mrz_validation["status"]),
-        score=mrz_validation["score"],
-        reason=mrz_validation["reason"],
-        details=mrz_validation.get("details"),
+    extracted_doc_number = doc_info.get("document_number")
+    # Development override allows testing synthetic blacklist triggers
+    active_doc_number = (
+        doc_number_override.strip().upper()
+        if doc_number_override
+        else extracted_doc_number
     )
 
-    # Execute REAL SQLite Blacklist Checker
+    # 3. REAL MRZ Validation (TD3 format if present)
+    mrz_1 = extraction_result.get("mrz_line_1")
+    mrz_2 = extraction_result.get("mrz_line_2")
+
+    if mrz_1 and mrz_2 and len(mrz_1) == 44 and len(mrz_2) == 44:
+        mrz_validation = validate_td3_mrz(mrz_1, mrz_2)
+        mrz_check = MRZCheckResult(
+            status=CheckStatus(mrz_validation["status"]),
+            score=mrz_validation["score"],
+            reason=mrz_validation["reason"],
+            details=mrz_validation.get("details"),
+        )
+    else:
+        # Non-passport documents (e.g. college IDs) or unreadable MRZ
+        mrz_check = MRZCheckResult(
+            status=CheckStatus.NOT_AVAILABLE,
+            score=0,
+            reason="MRZ is not present or could not be extracted from this document",
+            details=None,
+        )
+
+    # 4. REAL Document Expiry Validation
+    expiry_res = validate_expiry(doc_info.get("expiry_date"))
+    expiry_check = ExpiryCheckResult(
+        status=CheckStatus(expiry_res["status"]),
+        score=expiry_res["score"],
+        reason=expiry_res["reason"],
+    )
+
+    # 5. REAL SQLite Blacklist Screening
     blacklist_res = check_blacklist(
         document_number=active_doc_number,
-        full_name="ARUN KUMAR",
-        nationality="IND",
-        date_of_birth="2004-08-20",
+        full_name=doc_info.get("full_name"),
+        nationality=doc_info.get("nationality"),
+        date_of_birth=doc_info.get("date_of_birth"),
     )
     blacklist_check = BlacklistCheckResult(
         status=CheckStatus(blacklist_res["status"]),
@@ -90,13 +114,10 @@ async def screen_identity(
         match=blacklist_res.get("match"),
     )
 
+    # 6. Assemble checks container (tamper, face match, duplicate identity remain simulated)
     checks = ChecksContainer(
         mrz=mrz_check,
-        expiry=ExpiryCheckResult(
-            status=CheckStatus.PASS,
-            score=0,
-            reason="Document is valid",
-        ),
+        expiry=expiry_check,
         tamper=TamperCheckResult(
             status=CheckStatus.WARNING,
             risk=32,
@@ -115,20 +136,20 @@ async def screen_identity(
         blacklist=blacklist_check,
     )
 
-    # Execute REAL explainable risk-scoring engine
+    # 7. REAL Explainable Risk Engine
     risk_evaluation = calculate_risk(checks)
 
-    # Build response following contract structure with dynamic risk evaluation
+    # 8. Return formal ScreeningResponse
     return ScreeningResponse(
         screening_id="SCR-2026-0001",
         document=DocumentExtractedData(
-            document_type="passport",
-            full_name="ARUN KUMAR",
+            document_type=doc_info.get("document_type"),
+            full_name=doc_info.get("full_name"),
             document_number=active_doc_number,
-            nationality="IND",
-            date_of_birth="2004-08-20",
-            expiry_date="2032-08-14",
-            sex="M",
+            nationality=doc_info.get("nationality"),
+            date_of_birth=doc_info.get("date_of_birth"),
+            expiry_date=doc_info.get("expiry_date"),
+            sex=doc_info.get("sex"),
         ),
         checks=checks,
         risk=RiskAssessment(
