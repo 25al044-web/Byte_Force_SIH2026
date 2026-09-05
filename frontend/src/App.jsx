@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { EmptyState } from './components/EmptyState'
 import { UploadPanel } from './components/UploadPanel'
+import { SelfieCapturePanel } from './components/SelfieCapturePanel'
 import { ScreeningCTA } from './components/ScreeningCTA'
 import { LoadingTimeline } from './components/LoadingTimeline'
 import { ResultHero } from './components/ResultHero'
@@ -189,7 +190,7 @@ function App() {
                   onRemove={handleDocumentRemove}
                   iconType="document"
                 />
-                <UploadPanel
+                <SelfieCapturePanel
                   id="selfie-upload"
                   title="Applicant Selfie"
                   subtitle="Live frontal portrait — clear, unobstructed"
@@ -197,7 +198,6 @@ function App() {
                   previewUrl={selfiePreview}
                   onFileSelect={handleSelfieSelect}
                   onRemove={handleSelfieRemove}
-                  iconType="selfie"
                 />
               </div>
 
