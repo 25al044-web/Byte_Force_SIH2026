@@ -112,3 +112,59 @@ export async function resetDemoData() {
   }
   return res.json()
 }
+
+/**
+ * Fetches active blacklist records.
+ * @param {Object} opts - Optional filters: { severity, search, activeOnly }
+ */
+export async function getBlacklist({ severity, search, activeOnly = true } = {}) {
+  const params = new URLSearchParams()
+  params.set('active_only', String(activeOnly))
+  if (severity) params.set('severity', severity)
+  if (search) params.set('search', search)
+
+  const res = await fetch(`${API_BASE_URL}/api/blacklist?${params.toString()}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || 'Failed to fetch blacklist records.')
+  }
+  return res.json()
+}
+
+/**
+ * Adds an entry to the demonstration blacklist.
+ * @param {{ document_number, full_name, nationality, date_of_birth, reason, severity }} entry
+ */
+export async function addBlacklistEntry(entry) {
+  const res = await fetch(`${API_BASE_URL}/api/blacklist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = data.detail
+    if (Array.isArray(detail)) {
+      throw new Error(detail.map((e) => `${e.loc ? e.loc.join('.') + ': ' : ''}${e.msg}`).join('; '))
+    }
+    throw new Error(typeof detail === 'string' ? detail : `Request failed (${res.status}).`)
+  }
+  return data
+}
+
+/**
+ * Deactivates a blacklist entry by document number.
+ * @param {string} documentNumber
+ */
+export async function deactivateBlacklistEntry(documentNumber) {
+  const res = await fetch(
+    `${API_BASE_URL}/api/blacklist/${encodeURIComponent(documentNumber)}/deactivate`,
+    { method: 'PATCH' }
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = data.detail
+    throw new Error(typeof detail === 'string' ? detail : `Deactivate failed (${res.status}).`)
+  }
+  return data
+}

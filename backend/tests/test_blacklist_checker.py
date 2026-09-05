@@ -127,17 +127,23 @@ def test_case_insensitive_and_whitespace_trimming():
 
 
 def test_get_blacklist_endpoint():
-    """GET /api/blacklist development endpoint returns sanitized demonstration records."""
+    """GET /api/blacklist returns active records by default; active_only=false returns all seeds."""
+    # Active-only (default): INACTIVE01 must NOT appear
     response = client.get("/api/blacklist")
     assert response.status_code == 200
     data = response.json()
     assert "disclaimer" in data
     assert "DEMONSTRATION" in data["disclaimer"]
-    assert data["total"] >= len(SYNTHETIC_BLACKLIST_SEEDS)
     assert isinstance(data["records"], list)
+    for rec in data["records"]:
+        assert rec["is_active"] is True
 
-    # Check a specific record structure
-    doc_numbers = [r["document_number"] for r in data["records"]]
-    assert "TEST0001" in doc_numbers
-    assert "DEMO9999" in doc_numbers
-    assert "INACTIVE01" in doc_numbers
+    # Fetch all records (active_only=false) to verify seeds are present
+    response_all = client.get("/api/blacklist?active_only=false")
+    assert response_all.status_code == 200
+    data_all = response_all.json()
+    assert data_all["total"] >= len(SYNTHETIC_BLACKLIST_SEEDS)
+    doc_numbers_all = [r["document_number"] for r in data_all["records"]]
+    assert "TEST0001" in doc_numbers_all
+    assert "DEMO9999" in doc_numbers_all
+    assert "INACTIVE01" in doc_numbers_all

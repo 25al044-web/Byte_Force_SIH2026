@@ -1,97 +1,88 @@
 import React, { useEffect, useState } from 'react'
-import { Header } from './components/Header'
-import { UploadCard } from './components/UploadCard'
-import { ScreeningButton } from './components/ScreeningButton'
-import { LoadingState } from './components/LoadingState'
-import { IdentityDetails } from './components/IdentityDetails'
-import { VerificationCheck } from './components/VerificationCheck'
-import { RiskMeter } from './components/RiskMeter'
-import { ExplanationPanel } from './components/ExplanationPanel'
+import { Sidebar } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
+import { EmptyState } from './components/EmptyState'
+import { UploadPanel } from './components/UploadPanel'
+import { ScreeningCTA } from './components/ScreeningCTA'
+import { LoadingTimeline } from './components/LoadingTimeline'
+import { ResultHero } from './components/ResultHero'
+import { RiskGauge } from './components/RiskGauge'
+import { IdentityPanel } from './components/IdentityPanel'
+import { VerificationGrid } from './components/VerificationGrid'
+import { ExplanationList } from './components/ExplanationList'
 import { ErrorMessage } from './components/ErrorMessage'
+import { BlacklistPanel } from './components/BlacklistPanel'
 import { checkBackendHealth, getDemoStatus, resetDemoData, screenIdentity } from './services/api'
 
-const ACTIVE_MODULES = [
-  { name: 'Document Extraction', tech: 'Gemini 2.5 Flash' },
-  { name: 'MRZ Validation', tech: 'ICAO Doc 9303 TD3' },
-  { name: 'Expiry Validation', tech: 'Temporal Rule Engine' },
-  { name: 'Face Verification', tech: 'InsightFace ArcFace' },
-  { name: 'Duplicate Identity Detection', tech: 'Cosine Vector Store' },
-  { name: 'Blacklist Screening', tech: 'SQLite Exact/Fuzzy' },
-  { name: 'Tamper Screening', tech: 'OpenCV Forensic ELA' },
-  { name: 'Explainable Risk Scoring', tech: 'Explainable Rules Engine' },
-]
-
 function App() {
+  // Upload state
   const [documentFile, setDocumentFile] = useState(null)
   const [documentPreview, setDocumentPreview] = useState(null)
   const [selfieFile, setSelfieFile] = useState(null)
   const [selfiePreview, setSelfiePreview] = useState(null)
 
+  // Process state
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+
+  // System state
   const [backendOnline, setBackendOnline] = useState(false)
   const [demoMode, setDemoMode] = useState(true)
   const [resettingDemo, setResettingDemo] = useState(false)
-  const [resetSuccessNotice, setResetSuccessNotice] = useState(null)
+  const [resetNotice, setResetNotice] = useState(null)
+  const [showBlacklist, setShowBlacklist] = useState(false)
 
-  // Verify backend connectivity and demo status on load & periodic polling
+  // Backend health polling
   useEffect(() => {
-    let isMounted = true
+    let mounted = true
     const probe = async () => {
       const ok = await checkBackendHealth()
-      if (isMounted) {
-        setBackendOnline(ok)
-        if (ok) {
-          const isDemo = await getDemoStatus()
-          if (isMounted) setDemoMode(isDemo)
-        }
+      if (!mounted) return
+      setBackendOnline(ok)
+      if (ok) {
+        const demo = await getDemoStatus()
+        if (mounted) setDemoMode(demo)
       }
     }
     probe()
-    const interval = setInterval(probe, 8000)
-    return () => {
-      isMounted = false
-      clearInterval(interval)
-    }
+    const iv = setInterval(probe, 8000)
+    return () => { mounted = false; clearInterval(iv) }
   }, [])
 
+  // File handlers
   const handleDocumentSelect = (file) => {
     if (documentPreview) URL.revokeObjectURL(documentPreview)
     setDocumentFile(file)
     setDocumentPreview(URL.createObjectURL(file))
     setError(null)
   }
-
   const handleDocumentRemove = () => {
     if (documentPreview) URL.revokeObjectURL(documentPreview)
     setDocumentFile(null)
     setDocumentPreview(null)
   }
-
   const handleSelfieSelect = (file) => {
     if (selfiePreview) URL.revokeObjectURL(selfiePreview)
     setSelfieFile(file)
     setSelfiePreview(URL.createObjectURL(file))
     setError(null)
   }
-
   const handleSelfieRemove = () => {
     if (selfiePreview) URL.revokeObjectURL(selfiePreview)
     setSelfieFile(null)
     setSelfiePreview(null)
   }
 
+  // Screening
   const handleRunScreening = async () => {
     if (!documentFile || !selfieFile) {
-      setError('Please upload both the travel/identity document and the live selfie.')
+      setError('Please provide both the identity document image and applicant selfie.')
       return
     }
-
     setLoading(true)
     setError(null)
     setResult(null)
-
     try {
       const data = await screenIdentity(documentFile, selfieFile)
       setResult(data)
@@ -102,20 +93,22 @@ function App() {
     }
   }
 
-  const handleReset = () => {
+  // New screening
+  const handleNewScreening = () => {
     handleDocumentRemove()
     handleSelfieRemove()
     setResult(null)
     setError(null)
   }
 
-  const handleResetDemoData = async () => {
+  // Reset demo
+  const handleResetDemo = async () => {
     setResettingDemo(true)
     setError(null)
     try {
       const res = await resetDemoData()
-      setResetSuccessNotice(res.message || 'Demo scan history cleared successfully.')
-      setTimeout(() => setResetSuccessNotice(null), 4000)
+      setResetNotice(res.message || 'Demo scan history cleared.')
+      setTimeout(() => setResetNotice(null), 4000)
     } catch (err) {
       setError(err.message || 'Failed to reset demo data.')
     } finally {
@@ -124,171 +117,158 @@ function App() {
   }
 
   const canSubmit = Boolean(documentFile && selfieFile)
+  const showEmpty = !loading && !result && !documentFile && !selfieFile
+  const showWorkspace = !result || loading
 
   return (
-    <div className="screening-app">
-      <div className="app-container">
-        <Header
+    <div className="app-shell">
+      <Sidebar backendOnline={backendOnline} demoMode={demoMode} onOpenBlacklist={() => setShowBlacklist(true)} />
+
+      {showBlacklist && (
+        <BlacklistPanel
+          onClose={() => setShowBlacklist(false)}
+          backendOnline={backendOnline}
+        />
+      )}
+
+      <div className="app-main">
+        <TopBar
           backendOnline={backendOnline}
           demoMode={demoMode}
-          onResetDemo={handleResetDemoData}
+          onResetDemo={handleResetDemo}
           resettingDemo={resettingDemo}
         />
 
-        {/* NOTIFICATIONS & ALERTS */}
-        {resetSuccessNotice && (
-          <div className="demo-notice-banner">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            <span>{resetSuccessNotice}</span>
-          </div>
-        )}
-
-        {!backendOnline && (
-          <div className="backend-offline-banner">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            <div className="offline-text">
-              <strong>Backend Service Disconnected.</strong>
-              <span> FastAPI screening server is not reachable on http://127.0.0.1:8000. Launch via START_APP.bat or run uvicorn.</span>
+        <div className="app-content">
+          {/* Toast notifications */}
+          {resetNotice && (
+            <div className="toast-success" role="status">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>{resetNotice}</span>
             </div>
-          </div>
-        )}
-
-        <main className="main-content">
-          {/* UPLOAD STAGE */}
-          <section className="upload-section">
-            <div className="section-intro">
-              <span className="section-step-indicator">STAGE 1: BIOMETRIC &amp; DOCUMENT INGESTION</span>
-              <p className="section-instruction">
-                Submit identity document and live selfie photographs in JPEG or PNG format for automated screening.
-              </p>
-            </div>
-
-            <div className="upload-grid">
-              <UploadCard
-                id="document-upload"
-                title="Travel / Identity Document"
-                subtitle="Accepts JPEG or PNG passport or national ID scan"
-                file={documentFile}
-                previewUrl={documentPreview}
-                onFileSelect={handleDocumentSelect}
-                onRemove={handleDocumentRemove}
-                iconType="document"
-              />
-
-              <UploadCard
-                id="selfie-upload"
-                title="Live / Selfie Photograph"
-                subtitle="Accepts JPEG or PNG frontal portrait of applicant"
-                file={selfieFile}
-                previewUrl={selfiePreview}
-                onFileSelect={handleSelfieSelect}
-                onRemove={handleSelfieRemove}
-                iconType="selfie"
-              />
-            </div>
-
-            <ScreeningButton
-              disabled={!canSubmit || !backendOnline}
-              loading={loading}
-              onClick={handleRunScreening}
-            />
-          </section>
-
-          {/* ERROR DISPLAY */}
-          {error && (
-            <ErrorMessage
-              message={error}
-              onDismiss={() => setError(null)}
-            />
           )}
 
-          {/* LOADING STATE */}
-          {loading && <LoadingState />}
+          {!backendOnline && (
+            <div className="toast-offline" role="alert">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>
+                <strong>Backend Service Disconnected.</strong> FastAPI screening server is unreachable at http://127.0.0.1:8000. Launch via START_APP.bat to enable full screening.
+              </span>
+            </div>
+          )}
 
-          {/* RESULTS DASHBOARD */}
-          {result && !loading && (
-            <section className="results-section">
-              <div className="results-header-banner">
-                <div className="results-title-group">
-                  <span className="section-step-indicator">STAGE 2: SCREENING RESULTS &amp; RISK TRIAGE</span>
-                  <h2 className="results-main-title">Border Inspection Report</h2>
+          {/* ── EMPTY STATE ── */}
+          {showEmpty && <EmptyState />}
+
+          {/* ── WORKSPACE: Upload + Screening ── */}
+          {!result && (
+            <section className={`workspace-section ${showEmpty ? 'workspace-below-empty' : ''}`}>
+              {/* Stage header */}
+              {!showEmpty && (
+                <div className="stage-header">
+                  <span className="stage-pill">STAGE 1</span>
+                  <h2 className="stage-title">Credential &amp; Biometric Ingestion</h2>
+                  <p className="stage-sub">Submit identity document and applicant selfie for automated multimodal analysis.</p>
                 </div>
-                <button
-                  type="button"
-                  className="reset-btn"
-                  onClick={handleReset}
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="1 4 1 10 7 10" />
-                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                  </svg>
-                  <span>New Screening</span>
-                </button>
+              )}
+
+              <div className="upload-grid">
+                <UploadPanel
+                  id="doc-upload"
+                  title="Identity Document"
+                  subtitle="Passport · National ID · Visa · Driver's License"
+                  file={documentFile}
+                  previewUrl={documentPreview}
+                  onFileSelect={handleDocumentSelect}
+                  onRemove={handleDocumentRemove}
+                  iconType="document"
+                />
+                <UploadPanel
+                  id="selfie-upload"
+                  title="Applicant Selfie"
+                  subtitle="Live frontal portrait — clear, unobstructed"
+                  file={selfieFile}
+                  previewUrl={selfiePreview}
+                  onFileSelect={handleSelfieSelect}
+                  onRemove={handleSelfieRemove}
+                  iconType="selfie"
+                />
               </div>
 
-              {/* High visibility Risk Meter */}
-              <RiskMeter risk={result.risk} />
+              <ErrorMessage message={error} onDismiss={() => setError(null)} />
 
-              {/* Extracted Document Information */}
-              <IdentityDetails
-                screeningId={result.screening_id}
-                document={result.document}
+              <ScreeningCTA
+                disabled={!canSubmit || !backendOnline}
+                loading={loading}
+                onClick={handleRunScreening}
               />
 
-              {/* Automated Verification Checks */}
-              <VerificationCheck checks={result.checks} />
-
-              {/* Explainability Panel */}
-              <ExplanationPanel explanations={result.explanations} />
+              {loading && <LoadingTimeline />}
             </section>
           )}
 
-          {/* ACTIVE REAL-TIME CAPABILITIES */}
-          <section className="capabilities-section">
-            <div className="section-header">
-              <div className="header-label-group">
-                <span className="section-eyebrow">PIPELINE ARCHITECTURE</span>
-                <h3 className="section-subtitle-sm">Active Real-Time Screening Modules</h3>
-              </div>
-            </div>
-            <div className="modules-grid">
-              {ACTIVE_MODULES.map((mod, i) => (
-                <div key={i} className="module-chip">
-                  <span className="module-status-dot" />
-                  <div className="module-info">
-                    <span className="module-name">{mod.name}</span>
-                    <span className="module-tech">{mod.tech}</span>
-                  </div>
+          {/* ── RESULTS ── */}
+          {result && !loading && (
+            <section className="results-section">
+              {/* Results header */}
+              <div className="results-header">
+                <div className="results-header-left">
+                  <span className="stage-pill">STAGE 2</span>
+                  <h2 className="stage-title">Inspection Report &amp; Triage</h2>
                 </div>
-              ))}
-            </div>
-            <p className="disclaimer-note">
-              <strong>Automated Screening Aid Disclaimer:</strong> This system produces explainable risk triage indicators to assist border control officers. It is not a definitive certification of legal identity.
-            </p>
-          </section>
-        </main>
+                <button
+                  type="button"
+                  className="btn-new-screening"
+                  onClick={handleNewScreening}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                  New Screening
+                </button>
+              </div>
 
-        <footer className="app-footer">
-          <div className="footer-content">
-            <span>SIH 2026 • Problem Statement: SIH26188 • AI-Based Fake Identity &amp; Document Screening System</span>
-            <span className="footer-tag">SECURE BORDER &amp; DOCUMENT SCREENING ARCHITECTURE</span>
-          </div>
-        </footer>
+              <ErrorMessage message={error} onDismiss={() => setError(null)} />
+
+              {/* Hero + Gauge two-col */}
+              <div className="results-top-grid">
+                <ResultHero
+                  risk={result.risk}
+                  screeningId={result.screening_id}
+                />
+                <RiskGauge
+                  score={result.risk?.score}
+                  level={result.risk?.level}
+                />
+              </div>
+
+              {/* Identity information */}
+              <IdentityPanel
+                screeningId={result.screening_id}
+                document={result.document}
+                mrzLine1={result.document?.mrz_line_1}
+                mrzLine2={result.document?.mrz_line_2}
+              />
+
+              {/* Verification intelligence */}
+              <VerificationGrid
+                checks={result.checks}
+                documentPreview={documentPreview}
+                selfiePreview={selfiePreview}
+              />
+
+              {/* Explainability */}
+              <ExplanationList explanations={result.explanations} />
+            </section>
+          )}
+        </div>
       </div>
     </div>
   )
