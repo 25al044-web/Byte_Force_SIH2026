@@ -153,6 +153,17 @@ def init_db(db_path: Optional[str] = None) -> None:
             ON identity_embeddings(document_number);
             """
         )
+        # Stores only canonical report metadata and cryptographic hashes, never PII or images.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS screening_audits (
+                screening_id TEXT PRIMARY KEY, report_json TEXT NOT NULL,
+                report_hash TEXT NOT NULL, document_hash TEXT NOT NULL,
+                transaction_hash TEXT, block_number INTEGER, audit_status TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """
+        )
         conn.commit()
 
         # Seed synthetic records idempotently

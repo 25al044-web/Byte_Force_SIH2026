@@ -119,6 +119,16 @@ class RiskAssessment(BaseModel):
     level: RiskLevel
 
 
+class BlockchainAudit(BaseModel):
+    """Metadata only; no PII, images, or biometric data."""
+    status: str
+    screening_id: str
+    report_hash: Optional[str] = None
+    transaction_hash: Optional[str] = None
+    block_number: Optional[int] = None
+    verified: bool = False
+
+
 class ScreeningResponse(BaseModel):
     """Full API response contract for POST /api/screen."""
     model_config = ConfigDict(extra="ignore")
@@ -128,3 +138,4 @@ class ScreeningResponse(BaseModel):
     checks: ChecksContainer
     risk: RiskAssessment
     explanations: List[str]
+    blockchain_audit: Optional[BlockchainAudit] = None

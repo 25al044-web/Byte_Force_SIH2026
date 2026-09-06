@@ -13,6 +13,7 @@ import { VerificationGrid } from './components/VerificationGrid'
 import { ExplanationList } from './components/ExplanationList'
 import { ErrorMessage } from './components/ErrorMessage'
 import { BlacklistPanel } from './components/BlacklistPanel'
+import { BlockchainAuditCard } from './components/BlockchainAuditCard'
 import { checkBackendHealth, getDemoStatus, resetDemoData, screenIdentity } from './services/api'
 import { useTranslation } from './i18n'
 
@@ -268,6 +269,7 @@ function App() {
 
               {/* Explainability */}
               <ExplanationList explanations={result.explanations} />
+              <BlockchainAuditCard audit={result.blockchain_audit} />
             </section>
           )}
         </div>

@@ -113,6 +113,12 @@ export async function resetDemoData() {
   return res.json()
 }
 
+export async function getAudit(screeningId) {
+  const res = await fetch(`${API_BASE_URL}/api/audit/${encodeURIComponent(screeningId)}`)
+  if (!res.ok) throw new Error('Audit verification is unavailable.')
+  return res.json()
+}
+
 /**
  * Fetches active blacklist records.
  * @param {Object} opts - Optional filters: { severity, search, activeOnly }

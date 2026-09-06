@@ -1,0 +1,6 @@
+{
+  "name": "sih-screening-audit-chain",
+  "private": true,
+  "scripts": { "blockchain:node": "hardhat node", "blockchain:compile": "hardhat compile" },
+  "devDependencies": { "hardhat": "^2.22.0" }
+}

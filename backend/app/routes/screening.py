@@ -13,6 +13,7 @@ Executes the end-to-end identity screening pipeline:
 """
 
 import os
+import uuid
 from typing import Optional
 from fastapi import APIRouter, File, Query, UploadFile, status
 
@@ -41,6 +42,7 @@ from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
 from app.services.tamper_detector import detect_tampering, _decode_and_sanitize_image
+from app.services.blockchain.audit_service import create_audit
 
 router = APIRouter()
 
@@ -213,9 +215,17 @@ async def screen_identity(
     # 11. REAL Explainable Risk Engine
     risk_evaluation = calculate_risk(checks)
 
-    # 12. Return formal ScreeningResponse
+    # 12. Build the completed result, then append the isolated fail-open audit.
+    screening_id = f"SCR-2026-{uuid.uuid4().hex[:8].upper()}"
+    result_payload = {
+        "risk": {"score": risk_evaluation["score"], "level": risk_evaluation["level"]},
+        "checks": {"tamper": {"status": tamper_res["status"], "recommendation": tamper_res.get("recommendation")}, "face_match": {"status": face_res["status"]}},
+    }
+    blockchain_audit = create_audit(screening_id, document_bytes, selfie_bytes, result_payload)
+
+    # 13. Return formal ScreeningResponse
     return ScreeningResponse(
-        screening_id="SCR-2026-0001",
+        screening_id=screening_id,
         document=DocumentExtractedData(
             document_type=doc_info.get("document_type"),
             full_name=doc_info.get("full_name"),
@@ -231,4 +241,5 @@ async def screen_identity(
             level=RiskLevel(risk_evaluation["level"]),
         ),
         explanations=risk_evaluation["explanations"],
+        blockchain_audit=blockchain_audit,
     )
