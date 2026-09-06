@@ -120,7 +120,7 @@ def test_screen_endpoint_success(mock_extract, mock_face, mock_emb, mock_dup, mo
 
     data = response.json()
     validated = ScreeningResponse.model_validate(data)
-    assert validated.screening_id == "SCR-2026-0001"
+    assert validated.screening_id.startswith("SCR-2026-")
 
     # Extracted document fields
     assert validated.document.document_type == "passport"

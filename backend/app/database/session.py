@@ -164,6 +164,33 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
             """
         )
+
+        # Stores screening case summaries for officer review
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS screening_cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                screening_id TEXT NOT NULL UNIQUE,
+                risk_score INTEGER NOT NULL,
+                risk_level TEXT NOT NULL,
+                recommendation TEXT NOT NULL,
+                main_reason TEXT,
+                status TEXT NOT NULL,
+                review_status TEXT NOT NULL DEFAULT 'PENDING',
+                extracted_identity TEXT,
+                detected_issues TEXT,
+                document_integrity_status TEXT,
+                face_match_status TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_cases_screening_id
+            ON screening_cases(screening_id);
+            """
+        )
         conn.commit()
 
         # Seed synthetic records idempotently

@@ -42,7 +42,11 @@ from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
 from app.services.tamper_detector import detect_tampering, _decode_and_sanitize_image
+import logging
 from app.services.blockchain.audit_service import create_audit
+from app.services.case_service import save_case
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -223,7 +227,32 @@ async def screen_identity(
     }
     blockchain_audit = create_audit(screening_id, document_bytes, selfie_bytes, result_payload)
 
-    # 13. Return formal ScreeningResponse
+    # 13. Persist screening case for case review
+    try:
+        save_case(
+            screening_id=screening_id,
+            risk_score=risk_evaluation["score"],
+            risk_level=risk_evaluation["level"],
+            recommendation=tamper_res.get("recommendation") or "MANUAL_REVIEW_RECOMMENDED",
+            main_reason=risk_evaluation["explanations"][0] if risk_evaluation["explanations"] else (tamper_res.get("reason") or "Screening completed"),
+            status=tamper_res["status"],
+            extracted_identity={
+                "document_type": doc_info.get("document_type"),
+                "full_name": doc_info.get("full_name"),
+                "document_number": active_doc_number,
+                "nationality": doc_info.get("nationality"),
+                "date_of_birth": doc_info.get("date_of_birth"),
+                "expiry_date": doc_info.get("expiry_date"),
+                "sex": doc_info.get("sex"),
+            },
+            detected_issues=risk_evaluation["explanations"],
+            document_integrity_status=tamper_res["status"],
+            face_match_status=face_res["status"],
+        )
+    except Exception as save_err:
+        logger.warning("Failed to persist screening case: %s", save_err)
+
+    # 14. Return formal ScreeningResponse
     return ScreeningResponse(
         screening_id=screening_id,
         document=DocumentExtractedData(

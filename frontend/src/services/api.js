@@ -113,9 +113,33 @@ export async function resetDemoData() {
   return res.json()
 }
 
+export async function getAudits() {
+  const res = await fetch(`${API_BASE_URL}/api/audit`)
+  if (!res.ok) throw new Error('Failed to load blockchain audit records.')
+  return res.json()
+}
+
 export async function getAudit(screeningId) {
   const res = await fetch(`${API_BASE_URL}/api/audit/${encodeURIComponent(screeningId)}`)
   if (!res.ok) throw new Error('Audit verification is unavailable.')
+  return res.json()
+}
+
+export async function getCases(onlyRequiringReview = true) {
+  const res = await fetch(`${API_BASE_URL}/api/cases?all_cases=${!onlyRequiringReview}`)
+  if (!res.ok) throw new Error('Failed to load screening cases.')
+  return res.json()
+}
+
+export async function getCase(screeningId) {
+  const res = await fetch(`${API_BASE_URL}/api/cases/${encodeURIComponent(screeningId)}`)
+  if (!res.ok) throw new Error('Case not found.')
+  return res.json()
+}
+
+export async function getSystemStatus() {
+  const res = await fetch(`${API_BASE_URL}/api/system/status`)
+  if (!res.ok) throw new Error('Failed to fetch system status.')
   return res.json()
 }
 

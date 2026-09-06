@@ -1,8 +1,65 @@
 import React from 'react'
 import { useTranslation } from '../i18n'
 
-export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
+export function Sidebar({ backendOnline, demoMode, currentView = 'screening', onSelectView }) {
   const { t } = useTranslation()
+
+  const navItems = [
+    {
+      id: 'screening',
+      label: t('screening'),
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="M9 12l2 2 4-4" />
+        </svg>
+      ),
+    },
+    {
+      id: 'watchlist',
+      label: t('watchlist'),
+      badge: 'LIVE',
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+        </svg>
+      ),
+    },
+    {
+      id: 'case_review',
+      label: t('caseReview'),
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+        </svg>
+      ),
+    },
+    {
+      id: 'audit_trail',
+      label: t('auditTrail'),
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+      ),
+    },
+    {
+      id: 'system_status',
+      label: t('systemStatus'),
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+        </svg>
+      ),
+    },
+  ]
+
   return (
     <aside className="sidebar">
       {/* Brand */}
@@ -25,97 +82,25 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
       <nav className="sidebar-nav" aria-label={t('dashboard')}>
         <span className="nav-section-label">{t('dashboard')}</span>
         <ul className="nav-list">
-          {/* Active: Screening */}
-          <li>
-            <div className="nav-item nav-active" aria-current="page">
-              <span className="nav-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-              </span>
-              <span className="nav-label">{t('screening')}</span>
-              <span className="nav-active-dot" />
-            </div>
-          </li>
-
-          {/* Live: Watchlist / Blacklist Management */}
-          <li>
-            <button
-              type="button"
-              className="nav-item nav-live-btn"
-              onClick={onOpenBlacklist}
-              title={t('watchlist')}
-            >
-              <span className="nav-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                </svg>
-              </span>
-              <span className="nav-label">{t('watchlist')}</span>
-              <span className="nav-live-badge">LIVE</span>
-            </button>
-          </li>
-
-          {/* Locked: Case Review */}
-          <li>
-            <div className="nav-item nav-disabled" title="Not available in this demo">
-              <span className="nav-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                </svg>
-              </span>
-              <span className="nav-label">{t('caseReview')}</span>
-              <span className="nav-lock-badge">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-              </span>
-            </div>
-          </li>
-
-          {/* Locked: Audit Trail */}
-          <li>
-            <div className="nav-item nav-disabled" title="Not available in this demo">
-              <span className="nav-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-              </span>
-              <span className="nav-label">{t('auditTrail')}</span>
-              <span className="nav-lock-badge">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-              </span>
-            </div>
-          </li>
-
-          {/* Locked: System Status */}
-          <li>
-            <div className="nav-item nav-disabled" title="Not available in this demo">
-              <span className="nav-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                  <line x1="8" y1="21" x2="16" y2="21" />
-                  <line x1="12" y1="17" x2="12" y2="21" />
-                </svg>
-              </span>
-              <span className="nav-label">{t('systemStatus')}</span>
-              <span className="nav-lock-badge">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-              </span>
-            </div>
-          </li>
+          {navItems.map((item) => {
+            const isActive = currentView === item.id
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className={`nav-item ${isActive ? 'nav-active' : ''}`}
+                  onClick={() => onSelectView && onSelectView(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  title={item.label}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="nav-label">{item.label}</span>
+                  {item.badge && <span className="nav-live-badge">{item.badge}</span>}
+                  {isActive && <span className="nav-active-dot" />}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       </nav>
 

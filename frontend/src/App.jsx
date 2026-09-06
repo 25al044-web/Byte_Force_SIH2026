@@ -14,11 +14,18 @@ import { ExplanationList } from './components/ExplanationList'
 import { ErrorMessage } from './components/ErrorMessage'
 import { BlacklistPanel } from './components/BlacklistPanel'
 import { BlockchainAuditCard } from './components/BlockchainAuditCard'
+import { AuditTrailPage } from './components/AuditTrailPage'
+import { CaseReviewPage } from './components/CaseReviewPage'
+import { SystemStatusPage } from './components/SystemStatusPage'
 import { checkBackendHealth, getDemoStatus, resetDemoData, screenIdentity } from './services/api'
 import { useTranslation } from './i18n'
 
 function App() {
   const { t } = useTranslation()
+
+  // Navigation state
+  const [currentView, setCurrentView] = useState('screening')
+
   // Upload state
   const [documentFile, setDocumentFile] = useState(null)
   const [documentPreview, setDocumentPreview] = useState(null)
@@ -120,17 +127,50 @@ function App() {
     }
   }
 
+  const handleSelectView = (view) => {
+    if (view === 'watchlist') {
+      setShowBlacklist(true)
+      setCurrentView('watchlist')
+    } else {
+      setShowBlacklist(false)
+      setCurrentView(view)
+    }
+  }
+
+  const getHeaderInfo = () => {
+    switch (currentView) {
+      case 'case_review':
+        return { title: t('caseReview'), subtitle: 'Flagged Case Triage & Officer Inspection' }
+      case 'audit_trail':
+        return { title: t('auditTrail'), subtitle: 'Cryptographic Immutable Screening Ledger' }
+      case 'system_status':
+        return { title: t('systemStatus'), subtitle: 'Infrastructure Health & Subsystem Telemetry' }
+      case 'watchlist':
+        return { title: t('watchlist'), subtitle: 'Demonstration Watchlist & Sanctions Store' }
+      default:
+        return { title: t('identityScreening'), subtitle: t('screening') }
+    }
+  }
+
+  const headerInfo = getHeaderInfo()
   const canSubmit = Boolean(documentFile && selfieFile)
   const showEmpty = !loading && !result && !documentFile && !selfieFile
-  const showWorkspace = !result || loading
 
   return (
     <div className="app-shell">
-      <Sidebar backendOnline={backendOnline} demoMode={demoMode} onOpenBlacklist={() => setShowBlacklist(true)} />
+      <Sidebar
+        backendOnline={backendOnline}
+        demoMode={demoMode}
+        currentView={currentView}
+        onSelectView={handleSelectView}
+      />
 
-      {showBlacklist && (
+      {(showBlacklist || currentView === 'watchlist') && (
         <BlacklistPanel
-          onClose={() => setShowBlacklist(false)}
+          onClose={() => {
+            setShowBlacklist(false)
+            if (currentView === 'watchlist') setCurrentView('screening')
+          }}
           backendOnline={backendOnline}
         />
       )}
@@ -141,6 +181,8 @@ function App() {
           demoMode={demoMode}
           onResetDemo={handleResetDemo}
           resettingDemo={resettingDemo}
+          title={headerInfo.title}
+          subtitle={headerInfo.subtitle}
         />
 
         <div className="app-content">
@@ -167,110 +209,124 @@ function App() {
             </div>
           )}
 
-          {/* ── EMPTY STATE ── */}
-          {showEmpty && <EmptyState />}
-
-          {/* ── WORKSPACE: Upload + Screening ── */}
-          {!result && (
-            <section className={`workspace-section ${showEmpty ? 'workspace-below-empty' : ''}`}>
-              {/* Stage header */}
-              {!showEmpty && (
-                <div className="stage-header">
-                  <span className="stage-pill">{t('startAnalysis')}</span>
-                  <h2 className="stage-title">{t('identityScreening')}</h2>
-                  <p className="stage-sub">{t('uploadIdentityDocument')} · {t('applicantSelfie')}</p>
-                </div>
-              )}
-
-              <div className="upload-grid">
-                <UploadPanel
-                  id="doc-upload"
-                  title={t('identityDocument')}
-                  subtitle={t('documentSubtitle')}
-                  file={documentFile}
-                  previewUrl={documentPreview}
-                  onFileSelect={handleDocumentSelect}
-                  onRemove={handleDocumentRemove}
-                  iconType="document"
-                />
-                <SelfieCapturePanel
-                  id="selfie-upload"
-                  title={t('applicantSelfie')}
-                  subtitle={t('selfieSubtitle')}
-                  file={selfieFile}
-                  previewUrl={selfiePreview}
-                  onFileSelect={handleSelfieSelect}
-                  onRemove={handleSelfieRemove}
-                />
-              </div>
-
-              <ErrorMessage message={error} onDismiss={() => setError(null)} />
-
-              <ScreeningCTA
-                disabled={!canSubmit || !backendOnline}
-                loading={loading}
-                onClick={handleRunScreening}
-              />
-
-              {loading && <LoadingTimeline />}
-            </section>
+          {/* ── CASE REVIEW VIEW ── */}
+          {currentView === 'case_review' && (
+            <CaseReviewPage backendOnline={backendOnline} />
           )}
 
-          {/* ── RESULTS ── */}
-          {result && !loading && (
-            <section className="results-section">
-              {/* Results header */}
-              <div className="results-header">
-                <div className="results-header-left">
-                  <span className="stage-pill">{t('report')}</span>
-                  <h2 className="stage-title">{t('verificationResult')}</h2>
-                </div>
-                <button
-                  type="button"
-                  className="btn-new-screening"
-                  onClick={handleNewScreening}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25">
-                    <polyline points="1 4 1 10 7 10" />
-                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                  </svg>
-                  {t('newScreening')}
-                </button>
-              </div>
+          {/* ── AUDIT TRAIL VIEW ── */}
+          {currentView === 'audit_trail' && (
+            <AuditTrailPage backendOnline={backendOnline} />
+          )}
 
-              <ErrorMessage message={error} onDismiss={() => setError(null)} />
+          {/* ── SYSTEM STATUS VIEW ── */}
+          {currentView === 'system_status' && (
+            <SystemStatusPage backendOnline={backendOnline} />
+          )}
 
-              {/* Hero + Gauge two-col */}
-              <div className="results-top-grid">
-                <ResultHero
-                  risk={result.risk}
-                  screeningId={result.screening_id}
-                />
-                <RiskGauge
-                  score={result.risk?.score}
-                  level={result.risk?.level}
-                />
-              </div>
+          {/* ── SCREENING VIEW (Default) ── */}
+          {currentView === 'screening' && (
+            <>
+              {/* EMPTY STATE */}
+              {showEmpty && <EmptyState />}
 
-              {/* Identity information */}
-              <IdentityPanel
-                screeningId={result.screening_id}
-                document={result.document}
-                mrzLine1={result.document?.mrz_line_1}
-                mrzLine2={result.document?.mrz_line_2}
-              />
+              {/* WORKSPACE: Upload + Screening */}
+              {!result && (
+                <section className={`workspace-section ${showEmpty ? 'workspace-below-empty' : ''}`}>
+                  {!showEmpty && (
+                    <div className="stage-header">
+                      <span className="stage-pill">{t('startAnalysis')}</span>
+                      <h2 className="stage-title">{t('identityScreening')}</h2>
+                      <p className="stage-sub">{t('uploadIdentityDocument')} · {t('applicantSelfie')}</p>
+                    </div>
+                  )}
 
-              {/* Verification intelligence */}
-              <VerificationGrid
-                checks={result.checks}
-                documentPreview={documentPreview}
-                selfiePreview={selfiePreview}
-              />
+                  <div className="upload-grid">
+                    <UploadPanel
+                      id="doc-upload"
+                      title={t('identityDocument')}
+                      subtitle={t('documentSubtitle')}
+                      file={documentFile}
+                      previewUrl={documentPreview}
+                      onFileSelect={handleDocumentSelect}
+                      onRemove={handleDocumentRemove}
+                      iconType="document"
+                    />
+                    <SelfieCapturePanel
+                      id="selfie-upload"
+                      title={t('applicantSelfie')}
+                      subtitle={t('selfieSubtitle')}
+                      file={selfieFile}
+                      previewUrl={selfiePreview}
+                      onFileSelect={handleSelfieSelect}
+                      onRemove={handleSelfieRemove}
+                    />
+                  </div>
 
-              {/* Explainability */}
-              <ExplanationList explanations={result.explanations} />
-              <BlockchainAuditCard audit={result.blockchain_audit} />
-            </section>
+                  <ErrorMessage message={error} onDismiss={() => setError(null)} />
+
+                  <ScreeningCTA
+                    disabled={!canSubmit || !backendOnline}
+                    loading={loading}
+                    onClick={handleRunScreening}
+                  />
+
+                  {loading && <LoadingTimeline />}
+                </section>
+              )}
+
+              {/* RESULTS */}
+              {result && !loading && (
+                <section className="results-section">
+                  <div className="results-header">
+                    <div className="results-header-left">
+                      <span className="stage-pill">{t('report')}</span>
+                      <h2 className="stage-title">{t('verificationResult')}</h2>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-new-screening"
+                      onClick={handleNewScreening}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25">
+                        <polyline points="1 4 1 10 7 10" />
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                      </svg>
+                      {t('newScreening')}
+                    </button>
+                  </div>
+
+                  <ErrorMessage message={error} onDismiss={() => setError(null)} />
+
+                  <div className="results-top-grid">
+                    <ResultHero
+                      risk={result.risk}
+                      screeningId={result.screening_id}
+                    />
+                    <RiskGauge
+                      score={result.risk?.score}
+                      level={result.risk?.level}
+                    />
+                  </div>
+
+                  <IdentityPanel
+                    screeningId={result.screening_id}
+                    document={result.document}
+                    mrzLine1={result.document?.mrz_line_1}
+                    mrzLine2={result.document?.mrz_line_2}
+                  />
+
+                  <VerificationGrid
+                    checks={result.checks}
+                    documentPreview={documentPreview}
+                    selfiePreview={selfiePreview}
+                  />
+
+                  <ExplanationList explanations={result.explanations} />
+                  <BlockchainAuditCard audit={result.blockchain_audit} />
+                </section>
+              )}
+            </>
           )}
         </div>
       </div>

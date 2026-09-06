@@ -16,15 +16,17 @@ function LiveClock() {
   )
 }
 
-export function TopBar({ backendOnline, demoMode, onResetDemo, resettingDemo }) {
+export function TopBar({ backendOnline, demoMode, onResetDemo, resettingDemo, title, subtitle }) {
   const { t } = useTranslation()
+  const displayTitle = title || t('identityScreening')
+  const displaySub = subtitle || t('screening')
   return (
     <header className="topbar">
       <div className="topbar-left">
         <div className="topbar-title-group">
-          <h1 className="topbar-page-title">{t('identityScreening')}</h1>
+          <h1 className="topbar-page-title">{displayTitle}</h1>
           <p className="topbar-page-sub">
-            {t('screening')}
+            {displaySub}
           </p>
         </div>
       </div>

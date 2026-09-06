@@ -4,6 +4,7 @@ import App from './App.jsx'
 import './index.css'
 import './language-selector.css'
 import './blockchain-audit.css'
+import './unlocked-pages.css'
 import { I18nProvider } from './i18n'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
