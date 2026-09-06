@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { LanguageSelector } from './LanguageSelector'
+import { useTranslation } from '../i18n'
 
 function LiveClock() {
   const [time, setTime] = useState(new Date())
@@ -15,13 +17,14 @@ function LiveClock() {
 }
 
 export function TopBar({ backendOnline, demoMode, onResetDemo, resettingDemo }) {
+  const { t } = useTranslation()
   return (
     <header className="topbar">
       <div className="topbar-left">
         <div className="topbar-title-group">
-          <h1 className="topbar-page-title">Identity Screening</h1>
+          <h1 className="topbar-page-title">{t('identityScreening')}</h1>
           <p className="topbar-page-sub">
-            Multimodal document &amp; biometric verification
+            {t('screening')}
           </p>
         </div>
       </div>
@@ -33,12 +36,14 @@ export function TopBar({ backendOnline, demoMode, onResetDemo, resettingDemo }) 
 
         <div className={`topbar-status-pill ${backendOnline ? 'status-online' : 'status-offline'}`}>
           <span className="topbar-status-dot" />
-          <span>{backendOnline ? 'Systems Operational' : 'Service Unavailable'}</span>
+          <span>{backendOnline ? t('systemsOperational') : t('serviceUnavailable')}</span>
         </div>
 
         {demoMode && (
           <span className="topbar-mode-pill">DEMO MODE</span>
         )}
+
+        <LanguageSelector />
 
         <div className="topbar-divider-v" />
 
@@ -48,7 +53,7 @@ export function TopBar({ backendOnline, demoMode, onResetDemo, resettingDemo }) 
             className="topbar-reset-btn"
             onClick={onResetDemo}
             disabled={resettingDemo || !backendOnline}
-            title="Clear duplicate identity scan history"
+            title={t('resetDemo')}
           >
             <svg
               className={resettingDemo ? 'spin-icon' : ''}
@@ -62,7 +67,7 @@ export function TopBar({ backendOnline, demoMode, onResetDemo, resettingDemo }) 
               <polyline points="1 4 1 10 7 10" />
               <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
-            <span>{resettingDemo ? 'Resetting…' : 'Reset Demo'}</span>
+            <span>{resettingDemo ? t('resetting') : t('resetDemo')}</span>
           </button>
         )}
       </div>

@@ -1,10 +1,12 @@
 import React, { useEffect, useRef } from 'react'
+import { useTranslation } from '../i18n'
 
 /**
  * RiskGauge — SVG semicircular arc gauge
  * Animates needle from 0 to score on mount.
  */
 export function RiskGauge({ score = 0, level = 'REVIEW' }) {
+  const { t } = useTranslation()
   const normalizedScore = Math.max(0, Math.min(100, Math.round(score)))
   const needleRef = useRef(null)
   const scoreRef = useRef(null)
@@ -56,9 +58,9 @@ export function RiskGauge({ score = 0, level = 'REVIEW' }) {
   const activeColor = levelColors[level.toUpperCase()] || '#f59e0b'
 
   const levelZoneLabels = {
-    LOW: '0 – 24  LOW RISK',
-    REVIEW: '25 – 59  REVIEW REQUIRED',
-    HIGH: '60 – 100  HIGH RISK',
+    LOW: `0 – 24  ${t('lowRisk')}`,
+    REVIEW: `25 – 59  ${t('manualReviewRequired')}`,
+    HIGH: `60 – 100  ${t('highRisk')}`,
   }
 
   useEffect(() => {
@@ -83,14 +85,14 @@ export function RiskGauge({ score = 0, level = 'REVIEW' }) {
   return (
     <div className="risk-gauge-card">
       <div className="rg-header">
-        <span className="rg-eyebrow">RISK ASSESSMENT</span>
+        <span className="rg-eyebrow">{t('riskAssessment')}</span>
         <span className="rg-zone-label" style={{ color: activeColor }}>
           {levelZoneLabels[level.toUpperCase()] || level}
         </span>
       </div>
 
       <div className="rg-svg-wrap">
-        <svg viewBox="0 0 240 130" className="rg-svg" aria-label={`Risk gauge: ${normalizedScore} out of 100`}>
+        <svg viewBox="0 0 240 130" className="rg-svg" aria-label={`${t('riskScore')}: ${normalizedScore} / 100`}>
           {/* Background track */}
           <path d={describeArc(startAngle, startAngle + totalArc, r, r - 22)} fill="#1a2744" />
 
@@ -157,9 +159,9 @@ export function RiskGauge({ score = 0, level = 'REVIEW' }) {
 
       {/* Legend */}
       <div className="rg-legend">
-        <div className="rg-legend-item"><span className="rg-swatch rg-sw-low" /><span>0–24 LOW</span></div>
-        <div className="rg-legend-item"><span className="rg-swatch rg-sw-review" /><span>25–59 REVIEW</span></div>
-        <div className="rg-legend-item"><span className="rg-swatch rg-sw-high" /><span>60–100 HIGH</span></div>
+        <div className="rg-legend-item"><span className="rg-swatch rg-sw-low" /><span>0–24 {t('lowRisk')}</span></div>
+        <div className="rg-legend-item"><span className="rg-swatch rg-sw-review" /><span>25–59 {t('manualReview')}</span></div>
+        <div className="rg-legend-item"><span className="rg-swatch rg-sw-high" /><span>60–100 {t('highRisk')}</span></div>
       </div>
     </div>
   )

@@ -14,8 +14,10 @@ import { ExplanationList } from './components/ExplanationList'
 import { ErrorMessage } from './components/ErrorMessage'
 import { BlacklistPanel } from './components/BlacklistPanel'
 import { checkBackendHealth, getDemoStatus, resetDemoData, screenIdentity } from './services/api'
+import { useTranslation } from './i18n'
 
 function App() {
+  const { t } = useTranslation()
   // Upload state
   const [documentFile, setDocumentFile] = useState(null)
   const [documentPreview, setDocumentPreview] = useState(null)
@@ -78,7 +80,7 @@ function App() {
   // Screening
   const handleRunScreening = async () => {
     if (!documentFile || !selfieFile) {
-      setError('Please provide both the identity document image and applicant selfie.')
+      setError(`${t('uploadIdentityDocument')} · ${t('applicantSelfie')}`)
       return
     }
     setLoading(true)
@@ -108,10 +110,10 @@ function App() {
     setError(null)
     try {
       const res = await resetDemoData()
-      setResetNotice(res.message || 'Demo scan history cleared.')
+      setResetNotice(res.message || t('clear'))
       setTimeout(() => setResetNotice(null), 4000)
     } catch (err) {
-      setError(err.message || 'Failed to reset demo data.')
+      setError(err.message || t('analysisFailed'))
     } finally {
       setResettingDemo(false)
     }
@@ -159,7 +161,7 @@ function App() {
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
               <span>
-                <strong>Backend Service Disconnected.</strong> FastAPI screening server is unreachable at http://127.0.0.1:8000. Launch via START_APP.bat to enable full screening.
+                <strong>{t('serviceUnavailable')}.</strong> {t('pleaseTryAgain')}
               </span>
             </div>
           )}
@@ -173,17 +175,17 @@ function App() {
               {/* Stage header */}
               {!showEmpty && (
                 <div className="stage-header">
-                  <span className="stage-pill">STAGE 1</span>
-                  <h2 className="stage-title">Credential &amp; Biometric Ingestion</h2>
-                  <p className="stage-sub">Submit identity document and applicant selfie for automated multimodal analysis.</p>
+                  <span className="stage-pill">{t('startAnalysis')}</span>
+                  <h2 className="stage-title">{t('identityScreening')}</h2>
+                  <p className="stage-sub">{t('uploadIdentityDocument')} · {t('applicantSelfie')}</p>
                 </div>
               )}
 
               <div className="upload-grid">
                 <UploadPanel
                   id="doc-upload"
-                  title="Identity Document"
-                  subtitle="Passport · National ID · Visa · Driver's License"
+                  title={t('identityDocument')}
+                  subtitle={t('documentSubtitle')}
                   file={documentFile}
                   previewUrl={documentPreview}
                   onFileSelect={handleDocumentSelect}
@@ -192,8 +194,8 @@ function App() {
                 />
                 <SelfieCapturePanel
                   id="selfie-upload"
-                  title="Applicant Selfie"
-                  subtitle="Live frontal portrait — clear, unobstructed"
+                  title={t('applicantSelfie')}
+                  subtitle={t('selfieSubtitle')}
                   file={selfieFile}
                   previewUrl={selfiePreview}
                   onFileSelect={handleSelfieSelect}
@@ -219,8 +221,8 @@ function App() {
               {/* Results header */}
               <div className="results-header">
                 <div className="results-header-left">
-                  <span className="stage-pill">STAGE 2</span>
-                  <h2 className="stage-title">Inspection Report &amp; Triage</h2>
+                  <span className="stage-pill">{t('report')}</span>
+                  <h2 className="stage-title">{t('verificationResult')}</h2>
                 </div>
                 <button
                   type="button"
@@ -231,7 +233,7 @@ function App() {
                     <polyline points="1 4 1 10 7 10" />
                     <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
                   </svg>
-                  New Screening
+                  {t('newScreening')}
                 </button>
               </div>
 

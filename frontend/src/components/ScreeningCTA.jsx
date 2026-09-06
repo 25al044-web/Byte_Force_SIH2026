@@ -1,6 +1,8 @@
 import React from 'react'
+import { useTranslation } from '../i18n'
 
 export function ScreeningCTA({ disabled, loading, onClick }) {
+  const { t } = useTranslation()
   return (
     <div className="cta-wrapper">
       <button
@@ -12,7 +14,7 @@ export function ScreeningCTA({ disabled, loading, onClick }) {
         {loading ? (
           <>
             <span className="cta-spinner" aria-hidden="true" />
-            <span className="cta-text">Processing Screening Pipeline…</span>
+            <span className="cta-text">{t('processing')}</span>
           </>
         ) : (
           <>
@@ -20,7 +22,7 @@ export function ScreeningCTA({ disabled, loading, onClick }) {
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               <path d="M9 12l2 2 4-4" />
             </svg>
-            <span className="cta-text">Start Identity Screening</span>
+            <span className="cta-text">{t('startScreening')}</span>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="9 18 15 12 9 6" />
             </svg>
@@ -30,7 +32,7 @@ export function ScreeningCTA({ disabled, loading, onClick }) {
 
       {disabled && !loading && (
         <p className="cta-hint">
-          Upload both an identity document and applicant selfie to begin verification.
+          {t('uploadIdentityDocument')} · {t('applicantSelfie')}
         </p>
       )}
     </div>

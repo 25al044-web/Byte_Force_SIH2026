@@ -1,12 +1,14 @@
 import React from 'react'
 import { SectionHeader } from './SectionHeader'
+import { translateReason, useTranslation } from '../i18n'
 
 export function ExplanationList({ explanations = [] }) {
+  const { t } = useTranslation()
   return (
     <div className="explanation-panel">
       <SectionHeader
         eyebrow="AUDITABLE AI EXPLAINABILITY"
-        title="Risk Assessment Factors"
+        title={t('riskFactors')}
         icon={
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
@@ -19,14 +21,14 @@ export function ExplanationList({ explanations = [] }) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            <span>RULE ENGINE LOG</span>
+            <span>{t('reasons')}</span>
           </div>
         }
       />
 
       <div className="exp-content">
         {explanations && explanations.length > 0 ? (
-          <ul className="exp-list" aria-label="Risk score factors">
+          <ul className="exp-list" aria-label={t('riskFactors')}>
             {explanations.map((exp, idx) => {
               // Detect if it's a penalty (deduction) or positive
               const isPenalty = exp.includes('+') || exp.includes('penal') || exp.includes('deduct') || exp.includes('flag') || exp.includes('mismatch') || exp.includes('expired') || exp.includes('blacklist') || exp.includes('tamper') || exp.includes('duplicate')
@@ -35,14 +37,14 @@ export function ExplanationList({ explanations = [] }) {
               return (
                 <li key={idx} className="exp-item">
                   <span className={`exp-bullet ${isPenalty ? 'bullet-penalty' : isNeutral ? 'bullet-neutral' : 'bullet-info'}`} />
-                  <span className="exp-text">{exp}</span>
+                  <span className="exp-text">{translateReason(exp, t)}</span>
                 </li>
               )
             })}
           </ul>
         ) : (
           <p className="exp-empty">
-            No specific anomaly triggers recorded. All evaluation checks maintained baseline operational metrics.
+            {t('noSignificantAnomaly')}
           </p>
         )}
       </div>

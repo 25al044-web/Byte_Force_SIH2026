@@ -4,8 +4,10 @@ import { FaceCompareCard } from './FaceCompareCard'
 import { TamperCard } from './TamperCard'
 import { AlertPanel } from './AlertPanel'
 import { SectionHeader } from './SectionHeader'
+import { translateReason, useTranslation } from '../i18n'
 
 function VerificationCard({ category, title, icon, status, metric, metricColor, reason }) {
+  const { t } = useTranslation()
   const hasMetric = metric !== null && metric !== undefined
 
   return (
@@ -38,12 +40,13 @@ function VerificationCard({ category, title, icon, status, metric, metricColor, 
         </div>
       )}
 
-      <p className="vc-reason">{reason || 'No diagnostic data recorded.'}</p>
+      <p className="vc-reason">{translateReason(reason, t) || t('noSignificantAnomaly')}</p>
     </div>
   )
 }
 
 export function VerificationGrid({ checks, documentPreview, selfiePreview }) {
+  const { t } = useTranslation()
   const blacklistMatch = checks?.blacklist?.match
   const dupMatch = checks?.duplicate_identity?.similar_identity
 
@@ -80,7 +83,7 @@ export function VerificationGrid({ checks, documentPreview, selfiePreview }) {
     <div className="verification-grid-section">
       <SectionHeader
         eyebrow="AUTOMATED INSPECTIONS"
-        title="Multi-Module Verification Intelligence"
+        title={t('verificationResult')}
         icon={
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 11l3 3L22 4" />
@@ -94,16 +97,16 @@ export function VerificationGrid({ checks, documentPreview, selfiePreview }) {
       {blacklistMatch && (
         <AlertPanel
           type="danger"
-          title="Watchlist Match Detected"
-          detail={checks.blacklist.reason || 'Identity matched against restricted watchlist records.'}
+          title={t('suspicious')}
+          detail={translateReason(checks.blacklist.reason, t) || t('suspicious')}
           metadata={blacklistMeta}
         />
       )}
       {dupMatch && (
         <AlertPanel
           type="danger"
-          title="Potential Duplicate Identity Detected"
-          detail={checks.duplicate_identity.reason || 'Near-identical face embedding matched against a previously screened record under a different document number.'}
+          title={t('suspicious')}
+          detail={translateReason(checks.duplicate_identity.reason, t) || t('suspicious')}
           metadata={dupMeta}
         />
       )}
@@ -115,9 +118,11 @@ export function VerificationGrid({ checks, documentPreview, selfiePreview }) {
         selfiePreview={selfiePreview}
       />
 
+      {/* Layered Document Integrity & Digital Forensics — Full width card */}
+      <TamperCard check={checks?.tamper} documentPreview={documentPreview} />
+
       {/* 2x2 remaining cards */}
       <div className="vg-cards-grid">
-        <TamperCard check={checks?.tamper} />
 
         <VerificationCard
           category="OPTICAL ICAO CHECKS"

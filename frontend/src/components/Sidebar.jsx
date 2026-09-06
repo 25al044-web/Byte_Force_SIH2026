@@ -1,6 +1,8 @@
 import React from 'react'
+import { useTranslation } from '../i18n'
 
 export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
+  const { t } = useTranslation()
   return (
     <aside className="sidebar">
       {/* Brand */}
@@ -13,15 +15,15 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
         </div>
         <div className="brand-text">
           <span className="brand-name">Sentinel ID</span>
-          <span className="brand-sub">Identity Screening Platform</span>
+          <span className="brand-sub">{t('identityScreening')}</span>
         </div>
       </div>
 
       <div className="sidebar-divider" />
 
       {/* Navigation */}
-      <nav className="sidebar-nav" aria-label="Main navigation">
-        <span className="nav-section-label">NAVIGATION</span>
+      <nav className="sidebar-nav" aria-label={t('dashboard')}>
+        <span className="nav-section-label">{t('dashboard')}</span>
         <ul className="nav-list">
           {/* Active: Screening */}
           <li>
@@ -32,7 +34,7 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
                   <path d="M9 12l2 2 4-4" />
                 </svg>
               </span>
-              <span className="nav-label">Screening</span>
+              <span className="nav-label">{t('screening')}</span>
               <span className="nav-active-dot" />
             </div>
           </li>
@@ -43,7 +45,7 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
               type="button"
               className="nav-item nav-live-btn"
               onClick={onOpenBlacklist}
-              title="Open Blacklist Management"
+              title={t('watchlist')}
             >
               <span className="nav-icon">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -51,7 +53,7 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
                   <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
                 </svg>
               </span>
-              <span className="nav-label">Watchlist</span>
+              <span className="nav-label">{t('watchlist')}</span>
               <span className="nav-live-badge">LIVE</span>
             </button>
           </li>
@@ -67,7 +69,7 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
                   <line x1="16" y1="17" x2="8" y2="17" />
                 </svg>
               </span>
-              <span className="nav-label">Case Review</span>
+              <span className="nav-label">{t('caseReview')}</span>
               <span className="nav-lock-badge">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -85,7 +87,7 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
                   <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                 </svg>
               </span>
-              <span className="nav-label">Audit Trail</span>
+              <span className="nav-label">{t('auditTrail')}</span>
               <span className="nav-lock-badge">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -105,7 +107,7 @@ export function Sidebar({ backendOnline, demoMode, onOpenBlacklist }) {
                   <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
               </span>
-              <span className="nav-label">System Status</span>
+              <span className="nav-label">{t('systemStatus')}</span>
               <span className="nav-lock-badge">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />

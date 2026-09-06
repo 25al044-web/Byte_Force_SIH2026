@@ -1,6 +1,8 @@
 import React from 'react'
+import { useTranslation } from '../i18n'
 
 export function ErrorMessage({ message, onDismiss }) {
+  const { t } = useTranslation()
   if (!message) return null
 
   return (
@@ -13,7 +15,7 @@ export function ErrorMessage({ message, onDismiss }) {
         </svg>
       </div>
       <div className="error-body">
-        <span className="error-heading">Screening System Notice</span>
+        <span className="error-heading">{t('systemNotice')}</span>
         <span className="error-msg">{message}</span>
       </div>
       {onDismiss && (
@@ -21,7 +23,7 @@ export function ErrorMessage({ message, onDismiss }) {
           type="button"
           className="error-dismiss"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t('dismiss')}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="18" y1="6" x2="6" y2="18" />

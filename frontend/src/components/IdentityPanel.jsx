@@ -1,29 +1,24 @@
 import React from 'react'
 import { SectionHeader } from './SectionHeader'
+import { useTranslation } from '../i18n'
 
-function FieldCell({ label, value }) {
+function FieldCell({ label, value, unavailable }) {
   const isEmpty = value === null || value === undefined || value === ''
   return (
     <div className="idn-field">
       <span className="idn-label">{label}</span>
       <span className={`idn-value ${isEmpty ? 'idn-value-na' : ''}`}>
-        {isEmpty ? 'Not available' : value}
+        {isEmpty ? unavailable : value}
       </span>
     </div>
   )
 }
 
 export function IdentityPanel({ screeningId, document, mrzLine1, mrzLine2 }) {
+  const { t } = useTranslation()
   const fields = [
-    { label: 'FULL NAME', value: document?.full_name },
-    { label: 'DOCUMENT TYPE', value: document?.document_type ? document.document_type.replace(/_/g, ' ').toUpperCase() : null },
-    { label: 'DOCUMENT NUMBER', value: document?.document_number },
-    { label: 'NATIONALITY', value: document?.nationality },
-    { label: 'DATE OF BIRTH', value: document?.date_of_birth },
-    { label: 'EXPIRY DATE', value: document?.expiry_date },
-    { label: 'SEX', value: document?.sex },
-    { label: 'ISSUING AUTHORITY', value: document?.issuing_authority },
-    { label: 'INSTITUTION / ORG', value: document?.institution_or_organization },
+    { label: t('fullName'), value: document?.full_name }, { label: t('documentType'), value: document?.document_type ? document.document_type.replace(/_/g, ' ').toUpperCase() : null },
+    { label: t('documentNumber'), value: document?.document_number }, { label: t('nationality'), value: document?.nationality }, { label: t('dateOfBirth'), value: document?.date_of_birth }, { label: t('expiryDate'), value: document?.expiry_date }, { label: t('sex'), value: document?.sex }, { label: t('issuingAuthority'), value: document?.issuing_authority }, { label: t('institution'), value: document?.institution_or_organization },
   ]
 
   const isUnavailable = !document?.full_name && !document?.document_number
@@ -33,7 +28,7 @@ export function IdentityPanel({ screeningId, document, mrzLine1, mrzLine2 }) {
     <div className="identity-panel">
       <SectionHeader
         eyebrow="CREDENTIAL TRANSCRIPTION"
-        title="Extracted Document Information"
+        title={t('extractedDocumentInformation')}
         icon={
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -66,7 +61,7 @@ export function IdentityPanel({ screeningId, document, mrzLine1, mrzLine2 }) {
 
       <div className="idn-fields-grid">
         {fields.map((f, i) => (
-          <FieldCell key={i} label={f.label} value={f.value} />
+          <FieldCell key={i} label={f.label} value={f.value} unavailable={t('notAvailable')} />
         ))}
       </div>
 

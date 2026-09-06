@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react'
+import { useTranslation } from '../i18n'
 
 export function UploadPanel({
   id,
@@ -10,6 +11,7 @@ export function UploadPanel({
   onRemove,
   iconType = 'document',
 }) {
+  const { t } = useTranslation()
   const [isDragging, setIsDragging] = useState(false)
   const [localError, setLocalError] = useState(null)
   const inputRef = useRef(null)
@@ -21,11 +23,11 @@ export function UploadPanel({
     setLocalError(null)
     if (!f) return
     if (!ALLOWED.includes(f.type)) {
-      setLocalError('Unsupported format. Use JPEG or PNG.')
+      setLocalError(t('unsupportedFormat'))
       return
     }
     if (f.size > MAX_BYTES) {
-      setLocalError('File exceeds 15 MB limit.')
+      setLocalError(t('fileTooLarge'))
       return
     }
     onFileSelect(f)
@@ -87,7 +89,7 @@ export function UploadPanel({
               type="button"
               className="up-icon-btn up-btn-replace"
               onClick={() => inputRef.current?.click()}
-              title="Replace image"
+              title={t('replaceImage')}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25">
                 <polyline points="1 4 1 10 7 10" />
@@ -98,7 +100,7 @@ export function UploadPanel({
               type="button"
               className="up-icon-btn up-btn-remove"
               onClick={onRemove}
-              title="Remove image"
+              title={t('removeImage')}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -128,15 +130,15 @@ export function UploadPanel({
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
-          aria-label={`Upload ${title}`}
+          aria-label={`${t('uploadIdentityDocument')}: ${title}`}
         >
           <div className="up-dz-icon">
             <UploadArrowIcon />
           </div>
           <p className="up-dz-primary">
-            <strong>Click to upload</strong> or drag &amp; drop
+            <strong>{t('clickToUpload')}</strong> · {t('dragDrop')}
           </p>
-          <p className="up-dz-hint">JPEG, PNG &bull; Up to 15 MB</p>
+          <p className="up-dz-hint">{t('supportedFormats')}</p>
         </div>
       ) : (
         <div className="up-preview">
@@ -147,7 +149,7 @@ export function UploadPanel({
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                ATTACHED
+                {t('attached')}
               </span>
             </div>
           </div>

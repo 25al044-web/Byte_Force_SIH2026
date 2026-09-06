@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from '../i18n'
 
 const TRIAGE_META = {
   LOW: {
@@ -45,9 +46,11 @@ const TRIAGE_META = {
 }
 
 export function ResultHero({ risk, screeningId }) {
+  const { t } = useTranslation()
   const score = typeof risk?.score === 'number' ? Math.max(0, Math.min(100, Math.round(risk.score))) : 0
   const level = (risk?.level || 'REVIEW').toUpperCase()
   const meta = TRIAGE_META[level] || TRIAGE_META.REVIEW
+  const metaCopy = level === 'LOW' ? { label: t('lowRisk'), directive: t('lowDirective'), detail: t('lowDetail') } : level === 'HIGH' ? { label: t('highRisk'), directive: t('highDirective'), detail: t('highDetail') } : { label: t('manualReviewRequired'), directive: t('reviewDirective'), detail: t('reviewDetail') }
 
   return (
     <div className={`result-hero ${meta.cls}`}>
@@ -68,13 +71,12 @@ export function ResultHero({ risk, screeningId }) {
         <div className="rh-outcome-block">
           <span className="rh-eyebrow">VERIFICATION OUTCOME</span>
           <div className="rh-outcome-badge" style={{ color: meta.color }}>
-            {meta.icon}
-            <span className="rh-outcome-label">{meta.label}</span>
+            {meta.icon}<span className="rh-outcome-label">{metaCopy.label}</span>
           </div>
           <div className="rh-score-row">
             <span className="rh-score-num">{score}</span>
             <span className="rh-score-denom">/&nbsp;100</span>
-            <span className="rh-score-caption">Composite Risk Score</span>
+            <span className="rh-score-caption">{t('riskScore')}</span>
           </div>
         </div>
 
@@ -85,8 +87,7 @@ export function ResultHero({ risk, screeningId }) {
               {meta.icon}
             </div>
             <div>
-              <p className="rh-directive-title">{meta.directive}</p>
-              <p className="rh-directive-detail">{meta.detail}</p>
+              <p className="rh-directive-title">{metaCopy.directive}</p><p className="rh-directive-detail">{metaCopy.detail}</p>
             </div>
           </div>
         </div>
