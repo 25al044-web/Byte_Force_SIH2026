@@ -1,0 +1,70 @@
+{
+  "01_genuine": {
+    "status": "PASS",
+    "risk": 0,
+    "recommendation": "CLEAR",
+    "has_mismatch": false
+  },
+  "02_jury_name_edit": {
+    "status": "FAIL",
+    "risk": 100,
+    "recommendation": "SECONDARY_INSPECTION_RECOMMENDED",
+    "has_mismatch": true
+  },
+  "03_dob_tamper": {
+    "status": "FAIL",
+    "risk": 78,
+    "recommendation": "SECONDARY_INSPECTION_RECOMMENDED",
+    "has_mismatch": true
+  },
+  "04_doc_num_tamper": {
+    "status": "FAIL",
+    "risk": 78,
+    "recommendation": "SECONDARY_INSPECTION_RECOMMENDED",
+    "has_mismatch": true
+  },
+  "05_face_replaced": {
+    "status": "PASS",
+    "risk": 15,
+    "recommendation": "CLEAR"
+  },
+  "06_recompressed": {
+    "status": "PASS",
+    "risk": 0,
+    "recommendation": "CLEAR"
+  },
+  "07_heavy_jpeg": {
+    "status": "WARNING",
+    "risk": 30,
+    "recommendation": "MANUAL_REVIEW_RECOMMENDED",
+    "quality_status": "DEGRADED"
+  },
+  "08_heavy_blur": {
+    "status": "WARNING",
+    "risk": 30,
+    "recommendation": "MANUAL_REVIEW_RECOMMENDED",
+    "quality_status": "DEGRADED"
+  },
+  "09_multi_field": {
+    "status": "FAIL",
+    "risk": 100,
+    "recommendation": "SECONDARY_INSPECTION_RECOMMENDED",
+    "mismatches": 3
+  },
+  "10_no_mrz_original": {
+    "status": "PASS",
+    "risk": 0,
+    "recommendation": "CLEAR"
+  },
+  "11_no_mrz_ai_edit": {
+    "status": "WARNING",
+    "risk": 35,
+    "recommendation": "MANUAL_REVIEW_RECOMMENDED"
+  },
+  "12_consistent_mrz": {
+    "status": "WARNING",
+    "risk": 35,
+    "recommendation": "MANUAL_REVIEW_RECOMMENDED",
+    "has_mismatch": false
+  }
+}

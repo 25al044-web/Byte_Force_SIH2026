@@ -164,31 +164,39 @@ def _check_sharpness(gray: np.ndarray) -> Dict[str, Any]:
 # Indicator B: Compression Inconsistency / Error Level Analysis (ELA)
 # ---------------------------------------------------------------------------
 
-def _check_compression_inconsistency(bgr: np.ndarray) -> Dict[str, Any]:
+def _check_compression_inconsistency(
+    bgr: np.ndarray,
+    precomputed_ela_map: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
     """Perform Error Level Analysis (ELA) across spatial patches."""
     h, w = bgr.shape[:2]
-    # Recompress to JPEG at quality 90 in memory
-    success, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-    if not success or encoded is None:
-        return {
-            "name": "compression_inconsistency",
-            "status": "PASS",
-            "score": 0,
-            "reason": "Compression analysis unavailable",
-        }
 
-    recompressed = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
-    if recompressed is None:
-        return {
-            "name": "compression_inconsistency",
-            "status": "PASS",
-            "score": 0,
-            "reason": "Recompression decode failed",
-        }
+    if precomputed_ela_map is not None:
+        # Re-use already computed ELA map (magnified 10x)
+        ela_map = precomputed_ela_map * 10.0
+    else:
+        # Recompress to JPEG at quality 90 in memory
+        success, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        if not success or encoded is None:
+            return {
+                "name": "compression_inconsistency",
+                "status": "PASS",
+                "score": 0,
+                "reason": "Compression analysis unavailable",
+            }
 
-    # Absolute difference between original and re-saved image, magnified 10x
-    diff = cv2.absdiff(bgr, recompressed).astype(np.float32) * 10.0
-    ela_map = np.mean(diff, axis=2)
+        recompressed = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        if recompressed is None:
+            return {
+                "name": "compression_inconsistency",
+                "status": "PASS",
+                "score": 0,
+                "reason": "Recompression decode failed",
+            }
+
+        # Absolute difference between original and re-saved image, magnified 10x
+        diff = cv2.absdiff(bgr, recompressed).astype(np.float32) * 10.0
+        ela_map = np.mean(diff, axis=2)
 
     # Compute block-level statistics across an 8x8 grid
     grid_rows, grid_cols = 8, 8
@@ -246,7 +254,10 @@ def _check_compression_inconsistency(bgr: np.ndarray) -> Dict[str, Any]:
 # Indicator C: Local Noise Inconsistency
 # ---------------------------------------------------------------------------
 
-def _check_noise_inconsistency(gray: np.ndarray) -> Dict[str, Any]:
+def _check_noise_inconsistency(
+    gray: np.ndarray,
+    precomputed_noise_res: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
     """Examine localized background sensor noise residuals using edge masking."""
     h, w = gray.shape[:2]
     # Mask out high-contrast edges so we inspect true background / surface noise
@@ -254,8 +265,11 @@ def _check_noise_inconsistency(gray: np.ndarray) -> Dict[str, Any]:
     dilated_edges = cv2.dilate(edges, np.ones((5, 5), np.uint8))
     smooth_mask = (dilated_edges == 0)
 
-    denoised = cv2.medianBlur(gray, 3)
-    noise = cv2.absdiff(gray, denoised).astype(np.float32)
+    if precomputed_noise_res is not None:
+        noise = precomputed_noise_res
+    else:
+        denoised = cv2.medianBlur(gray, 3)
+        noise = cv2.absdiff(gray, denoised).astype(np.float32)
 
     grid_rows, grid_cols = 8, 8
     block_h = max(4, h // grid_rows)
@@ -314,12 +328,18 @@ def _check_noise_inconsistency(gray: np.ndarray) -> Dict[str, Any]:
 # Indicator D: Edge & Sharpness Inconsistency
 # ---------------------------------------------------------------------------
 
-def _check_edge_inconsistency(gray: np.ndarray) -> Dict[str, Any]:
+def _check_edge_inconsistency(
+    gray: np.ndarray,
+    precomputed_grad_mag: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
     """Detect anomalous sharp rectangular boundaries or gradient spikes."""
     h, w = gray.shape[:2]
-    sobelx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-    sobely = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-    magnitude = cv2.magnitude(sobelx, sobely)
+    if precomputed_grad_mag is not None:
+        magnitude = precomputed_grad_mag
+    else:
+        sobelx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        magnitude = cv2.magnitude(sobelx, sobely)
 
     grid_rows, grid_cols = 8, 8
     block_h = max(4, h // grid_rows)
@@ -372,8 +392,20 @@ def _check_edge_inconsistency(gray: np.ndarray) -> Dict[str, Any]:
 # Indicator E: Duplicate Region / Copy-Move Cloning (SIFT Matching)
 # ---------------------------------------------------------------------------
 
-def _check_duplicate_regions(gray: np.ndarray) -> Dict[str, Any]:
+def _check_duplicate_regions(
+    gray: np.ndarray,
+    precomputed_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Detect potential copy-move cloning using fast SIFT feature displacement clustering."""
+    if precomputed_result is not None:
+        return {
+            "name": "duplicate_regions",
+            "status": precomputed_result["status"],
+            "score": precomputed_result["score"],
+            "reason": precomputed_result["reason"],
+            "metric": precomputed_result.get("metric", 0),
+        }
+
     h, w = gray.shape[:2]
     # Bound image size for fast execution (< 60ms)
     scale = 1.0
@@ -539,9 +571,12 @@ def _check_metadata_signatures(metadata: Optional[Dict[str, Any]]) -> Dict[str, 
 
 def detect_tampering(
     image_bytes: bytes,
-    mime_type: str,
+    mime_type: str = "image/jpeg",
     extracted_data: Optional[Dict[str, Any]] = None,
     mrz_lines: Optional[Tuple[Optional[str], Optional[str]]] = None,
+    precomputed_bgr: Optional[np.ndarray] = None,
+    precomputed_metadata: Optional[Dict[str, Any]] = None,
+    precomputed_gray: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """Screen identity document for visual tampering, forgery, and data integrity.
 
@@ -550,6 +585,9 @@ def detect_tampering(
         mime_type: MIME type string (e.g. 'image/jpeg', 'image/png').
         extracted_data: Optional dictionary of OCR-extracted fields for cross-validation.
         mrz_lines: Optional (mrz_line_1, mrz_line_2) tuple if MRZ was extracted.
+        precomputed_bgr: Optional pre-decoded BGR numpy array (skips re-decoding).
+        precomputed_metadata: Optional pre-extracted image metadata dictionary.
+        precomputed_gray: Optional pre-converted grayscale array.
 
     Returns:
         Dict adhering to the pipeline check contract with layered forensic insights:
@@ -568,7 +606,13 @@ def detect_tampering(
             "ai_manipulation": Dict[str, Any],
         }
     """
-    bgr, metadata, err = _decode_and_sanitize_image(image_bytes, mime_type)
+    if precomputed_bgr is not None:
+        bgr = precomputed_bgr
+        metadata = precomputed_metadata or {}
+        err = None
+    else:
+        bgr, metadata, err = _decode_and_sanitize_image(image_bytes, mime_type)
+
     if err is not None or bgr is None:
         return {
             "status": "NOT_AVAILABLE",
@@ -585,32 +629,55 @@ def detect_tampering(
             "ai_manipulation": {"indicator": "LOW", "score": 0},
         }
 
-    try:
-        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    except Exception as exc:
-        logger.warning("Tamper detector: grayscale conversion failed: %s", exc)
-        return {
-            "status": "NOT_AVAILABLE",
-            "risk": None,
-            "reason": "Image color conversion failed",
-            "recommendation": "MANUAL_REVIEW_RECOMMENDED",
-            "confidence": "LOW",
-            "checks": [],
-            "sub_checks": {},
-            "document_quality": {"status": "UNAVAILABLE", "score": 0, "confidence": "LOW"},
-            "field_analysis": [],
-            "highlighted_regions": [],
-            "cross_field_consistency": {"status": "NOT_AVAILABLE", "has_mismatch": False},
-            "ai_manipulation": {"indicator": "LOW", "score": 0},
-        }
+    if precomputed_gray is not None:
+        gray = precomputed_gray
+    else:
+        try:
+            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        except Exception as exc:
+            logger.warning("Tamper detector: grayscale conversion failed: %s", exc)
+            return {
+                "status": "NOT_AVAILABLE",
+                "risk": None,
+                "reason": "Image color conversion failed",
+                "recommendation": "MANUAL_REVIEW_RECOMMENDED",
+                "confidence": "LOW",
+                "checks": [],
+                "sub_checks": {},
+                "document_quality": {"status": "UNAVAILABLE", "score": 0, "confidence": "LOW"},
+                "field_analysis": [],
+                "highlighted_regions": [],
+                "cross_field_consistency": {"status": "NOT_AVAILABLE", "has_mismatch": False},
+                "ai_manipulation": {"indicator": "LOW", "score": 0},
+            }
+
+    # Precompute shared whole-document forensic maps once (shared across legacy checks & layered engine)
+    success, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    if success:
+        recompressed = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        diff = cv2.absdiff(bgr, recompressed).astype(np.float32)
+        ela_map = np.mean(diff, axis=2)
+    else:
+        ela_map = None
+
+    denoised_mb = cv2.medianBlur(gray, 3)
+    noise_res = cv2.absdiff(gray, denoised_mb).astype(np.float32)
+
+    sobel_v = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+    sobel_h = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    grad_mag = cv2.magnitude(sobel_v, sobel_h)
+
+    # Compute SIFT copy-move once (shared across _check_duplicate_regions and run_document_integrity_pipeline)
+    from app.services.document_analysis.image_forensics import analyze_copy_move_cloning
+    copy_move_res = analyze_copy_move_cloning(gray)
 
     # 1. Execute legacy independent visual indicators (preserves compatibility)
     legacy_indicators: List[Dict[str, Any]] = [
         _check_sharpness(gray),
-        _check_compression_inconsistency(bgr),
-        _check_noise_inconsistency(gray),
-        _check_edge_inconsistency(gray),
-        _check_duplicate_regions(gray),
+        _check_compression_inconsistency(bgr, precomputed_ela_map=ela_map),
+        _check_noise_inconsistency(gray, precomputed_noise_res=noise_res),
+        _check_edge_inconsistency(gray, precomputed_grad_mag=grad_mag),
+        _check_duplicate_regions(gray, precomputed_result=copy_move_res),
         _check_boundary_crop(gray),
         _check_metadata_signatures(metadata),
     ]
@@ -624,6 +691,10 @@ def detect_tampering(
         metadata=metadata,
         extracted_data=extracted_data,
         mrz_lines=mrz_lines,
+        precomputed_copy_move=copy_move_res,
+        precomputed_ela_map=ela_map,
+        precomputed_noise_res=noise_res,
+        precomputed_grad_mag=grad_mag,
     )
 
     # 3. Fuse scores (deterministic cross-field mismatch takes highest priority)

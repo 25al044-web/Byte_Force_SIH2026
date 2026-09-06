@@ -82,7 +82,7 @@ def _parse_qr_payload(raw_text: str) -> Dict[str, Optional[str]]:
     return fields
 
 
-def detect_and_decode_qr(bgr: np.ndarray) -> Dict[str, Any]:
+def detect_and_decode_qr(bgr: np.ndarray, gray: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """Detects and decodes QR codes and 1D/2D barcodes on the document image."""
     h, w = bgr.shape[:2]
     qr_detector = cv2.QRCodeDetector()
@@ -120,20 +120,21 @@ def detect_and_decode_qr(bgr: np.ndarray) -> Dict[str, Any]:
             "status": "PASS",
         }
 
-    # If multi-detect failed, try single-detect on grayscale
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    text_single, points_single, _ = qr_detector.detectAndDecode(gray)
-    if text_single:
-        extracted = _parse_qr_payload(text_single)
-        return {
-            "detected": True,
-            "type": "QR_CODE",
-            "raw_text": text_single[:200],
-            "bbox": None,
-            "extracted_fields": extracted,
-            "disclaimer": "Encoded-data consistency verified; issuing-authority authenticity not verified.",
-            "status": "PASS",
-        }
+    # If finder patterns were detected but multi-decode failed, try single-detect on grayscale
+    if points is not None and len(points) > 0:
+        gray_img = gray if gray is not None else cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        text_single, points_single, _ = qr_detector.detectAndDecode(gray_img)
+        if text_single:
+            extracted = _parse_qr_payload(text_single)
+            return {
+                "detected": True,
+                "type": "QR_CODE",
+                "raw_text": text_single[:200],
+                "bbox": None,
+                "extracted_fields": extracted,
+                "disclaimer": "Encoded-data consistency verified; issuing-authority authenticity not verified.",
+                "status": "PASS",
+            }
 
     return {
         "detected": False,

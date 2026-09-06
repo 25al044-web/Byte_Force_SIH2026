@@ -31,6 +31,8 @@ from app.models.screening import (
     TamperCheckResult,
 )
 
+import cv2
+
 from app.services.blacklist_checker import check_blacklist
 from app.services.document_extractor import extract_document
 from app.services.duplicate_identity_checker import check_duplicate_identity, store_embedding
@@ -38,7 +40,7 @@ from app.services.expiry_validator import validate_expiry
 from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
-from app.services.tamper_detector import detect_tampering
+from app.services.tamper_detector import detect_tampering, _decode_and_sanitize_image
 
 router = APIRouter()
 
@@ -127,12 +129,17 @@ async def screen_identity(
         match=blacklist_res.get("match"),
     )
 
-    # 6. REAL Biometric Face Comparison
+    # Decode document image once to share across face comparison and forensic tamper analysis
+    doc_bgr, doc_metadata, _ = _decode_and_sanitize_image(document_bytes, mime_type)
+    doc_gray = cv2.cvtColor(doc_bgr, cv2.COLOR_BGR2GRAY) if doc_bgr is not None else None
+
+    # 6. REAL Biometric Face Comparison (reuses pre-decoded document array)
     face_res = compare_faces(
         document_image_bytes=document_bytes,
         document_mime_type=mime_type,
         selfie_image_bytes=selfie_bytes,
         selfie_mime_type=selfie_mime_type,
+        precomputed_doc_bgr=doc_bgr,
     )
     face_check = FaceMatchCheckResult(
         status=CheckStatus(face_res["status"]),
@@ -140,11 +147,14 @@ async def screen_identity(
         reason=face_res["reason"],
     )
 
-    # 7. Extract selfie embedding for duplicate identity check
-    selfie_embedding = extract_selfie_embedding(
-        selfie_image_bytes=selfie_bytes,
-        selfie_mime_type=selfie_mime_type,
-    )
+    # 7. Extract selfie embedding for duplicate identity check (reuse if already checked)
+    if face_res.get("_selfie_checked"):
+        selfie_embedding = face_res.get("_selfie_embedding")
+    else:
+        selfie_embedding = extract_selfie_embedding(
+            selfie_image_bytes=selfie_bytes,
+            selfie_mime_type=selfie_mime_type,
+        )
 
     # 8. REAL Duplicate Identity Detection
     dup_res = check_duplicate_identity(
@@ -166,12 +176,15 @@ async def screen_identity(
             embedding=selfie_embedding,
         )
 
-    # 10. REAL Layered Document Tamper & Integrity Screening
+    # 10. REAL Layered Document Tamper & Integrity Screening (reuses pre-decoded image and grayscale)
     tamper_res = detect_tampering(
         image_bytes=document_bytes,
         mime_type=mime_type,
         extracted_data=doc_info,
         mrz_lines=(mrz_1, mrz_2) if (mrz_1 and mrz_2) else None,
+        precomputed_bgr=doc_bgr,
+        precomputed_metadata=doc_metadata,
+        precomputed_gray=doc_gray,
     )
     tamper_check = TamperCheckResult(
         status=CheckStatus(tamper_res["status"]),

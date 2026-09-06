@@ -42,6 +42,10 @@ def run_document_integrity_pipeline(
     metadata: Optional[Dict[str, Any]] = None,
     extracted_data: Optional[Dict[str, Any]] = None,
     mrz_lines: Optional[Tuple[Optional[str], Optional[str]]] = None,
+    precomputed_copy_move: Optional[Dict[str, Any]] = None,
+    precomputed_ela_map: Optional[np.ndarray] = None,
+    precomputed_noise_res: Optional[np.ndarray] = None,
+    precomputed_grad_mag: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """Executes the full layered document integrity analysis."""
     h, w = gray.shape[:2]
@@ -51,7 +55,7 @@ def run_document_integrity_pipeline(
     quality = assess_image_quality(bgr, gray, original_format=metadata.get("format") if metadata else None, metadata=metadata)
 
     # 2. Machine-Readable Decoding (QR / Barcode)
-    qr_result = detect_and_decode_qr(bgr)
+    qr_result = detect_and_decode_qr(bgr, gray=gray)
 
     # 3. MRZ Parsing
     mrz_result = None
@@ -75,6 +79,41 @@ def run_document_integrity_pipeline(
         qr_bbox=qr_result.get("bbox"),
     )
 
+    # Precompute shared whole-document forensic maps once to avoid redundant recomputations per field
+    if precomputed_ela_map is not None:
+        ela_map = precomputed_ela_map
+    else:
+        success, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        if success:
+            recompressed = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+            diff = cv2.absdiff(bgr, recompressed).astype(np.float32)
+            ela_map = np.mean(diff, axis=2)
+        else:
+            ela_map = None
+
+    if precomputed_noise_res is not None:
+        noise_res = precomputed_noise_res
+    else:
+        denoised_mb = cv2.medianBlur(gray, 3)
+        noise_res = cv2.absdiff(gray, denoised_mb).astype(np.float32)
+
+    if precomputed_grad_mag is not None:
+        grad_mag = precomputed_grad_mag
+        mean_grad = float(np.mean(grad_mag)) + 1.0
+    else:
+        sobel_v = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        sobel_h = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        grad_mag = cv2.magnitude(sobel_v, sobel_h)
+        mean_grad = float(np.mean(grad_mag)) + 1.0
+
+    doc_bg_noise_std = 0.0
+    if float(np.std(noise_res)) > 3.0:
+        edges = cv2.Canny(gray, 30, 100)
+        dilated = cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
+        pure_bg = (dilated == 0) & (gray > 200)
+        if np.count_nonzero(pure_bg) > 500:
+            doc_bg_noise_std = float(np.std(noise_res[pure_bg]))
+
     # 6. Local Field Forensics & Typography
     field_analysis: List[Dict[str, Any]] = []
     highlighted_regions: List[Dict[str, Any]] = []
@@ -86,7 +125,17 @@ def run_document_integrity_pipeline(
 
     for r in regions:
         if r.field_name in ("name", "document_number", "date_of_birth", "expiry_date"):
-            forensic_res = analyze_local_field_forensics(bgr, gray, r.pixel_bbox, r.label)
+            forensic_res = analyze_local_field_forensics(
+                bgr,
+                gray,
+                r.pixel_bbox,
+                r.label,
+                precomputed_ela_map=ela_map,
+                precomputed_noise_res=noise_res,
+                precomputed_grad_mag=grad_mag,
+                precomputed_mean_grad=mean_grad,
+                precomputed_doc_bg_noise_std=doc_bg_noise_std,
+            )
             score = forensic_res["anomaly_score"]
             max_field_anomaly = max(max_field_anomaly, score)
 
@@ -171,7 +220,10 @@ def run_document_integrity_pipeline(
     ai_manipulation_res = detect_ai_manipulation(bgr, gray, metadata=metadata, field_bboxes=sensitive_bboxes)
 
     # 9. Global Forensics (Copy-move SIFT, Boundary Crop, Metadata)
-    copy_move = analyze_copy_move_cloning(gray)
+    if precomputed_copy_move is not None:
+        copy_move = precomputed_copy_move
+    else:
+        copy_move = analyze_copy_move_cloning(gray)
 
     # 10. RISK FUSION ENGINE (Phase 11)
     risk_points = 0

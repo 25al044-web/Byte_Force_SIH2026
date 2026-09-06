@@ -20,6 +20,11 @@ def analyze_local_field_forensics(
     gray: np.ndarray,
     pixel_bbox: Tuple[int, int, int, int],
     field_name: str,
+    precomputed_ela_map: Optional[np.ndarray] = None,
+    precomputed_noise_res: Optional[np.ndarray] = None,
+    precomputed_grad_mag: Optional[np.ndarray] = None,
+    precomputed_mean_grad: Optional[float] = None,
+    precomputed_doc_bg_noise_std: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Inspects an individual field bounding box against document background baseline.
 
@@ -28,6 +33,11 @@ def analyze_local_field_forensics(
         gray: Grayscale full image.
         pixel_bbox: (y1, x1, y2, x2) in pixel space.
         field_name: Identifier of the field (e.g. 'name', 'date_of_birth').
+        precomputed_ela_map: Optional precomputed whole-document ELA map.
+        precomputed_noise_res: Optional precomputed whole-document noise residual.
+        precomputed_grad_mag: Optional precomputed whole-document Sobel gradient magnitude.
+        precomputed_mean_grad: Optional precomputed mean gradient across document.
+        precomputed_doc_bg_noise_std: Optional precomputed background noise std.
 
     Returns:
         Forensic anomaly metrics and composite local risk score (0 to 100).
@@ -49,12 +59,19 @@ def analyze_local_field_forensics(
     anomaly_points = 0
 
     # 1. Local Error Level Analysis (ELA)
-    success, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-    if success:
-        recompressed = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
-        diff = cv2.absdiff(bgr, recompressed).astype(np.float32)
-        ela_map = np.mean(diff, axis=2)
+    if precomputed_ela_map is not None:
+        ela_map = precomputed_ela_map
+        success = True
+    else:
+        success, encoded = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        if success:
+            recompressed = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+            diff = cv2.absdiff(bgr, recompressed).astype(np.float32)
+            ela_map = np.mean(diff, axis=2)
+        else:
+            ela_map = None
 
+    if success and ela_map is not None:
         # Patch ELA vs whole document ELA
         patch_ela = float(np.mean(ela_map[y1:y2, x1:x2]))
         doc_ela = float(np.mean(ela_map))
@@ -68,8 +85,11 @@ def analyze_local_field_forensics(
             reasons.append(f"Mild compression variance around {field_name}")
 
     # 2. Local Noise Consistency (Background residual)
-    denoised = cv2.medianBlur(gray, 3)
-    noise_res = cv2.absdiff(gray, denoised).astype(np.float32)
+    if precomputed_noise_res is not None:
+        noise_res = precomputed_noise_res
+    else:
+        denoised = cv2.medianBlur(gray, 3)
+        noise_res = cv2.absdiff(gray, denoised).astype(np.float32)
 
     # Calculate noise in field vs whole image
     patch_noise_std = float(np.std(noise_res[y1:y2, x1:x2]))
@@ -83,11 +103,14 @@ def analyze_local_field_forensics(
         anomaly_points += 25
         reasons.append(f"Abnormal sensor noise spike in {field_name} region (ratio {noise_ratio:.1f}x)")
     elif doc_noise_std > 3.0 and patch_noise_std < 0.35 and (y2 - y1) > 20:
-        # Only flag smoothing if the document background actually has texture/grain
-        edges = cv2.Canny(gray, 30, 100)
-        dilated = cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
-        pure_bg = (dilated == 0) & (gray > 200)
-        doc_bg_noise_std = float(np.std(noise_res[pure_bg])) if np.count_nonzero(pure_bg) > 500 else 0.0
+        if precomputed_doc_bg_noise_std is not None:
+            doc_bg_noise_std = precomputed_doc_bg_noise_std
+        else:
+            # Only flag smoothing if the document background actually has texture/grain
+            edges = cv2.Canny(gray, 30, 100)
+            dilated = cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
+            pure_bg = (dilated == 0) & (gray > 200)
+            doc_bg_noise_std = float(np.std(noise_res[pure_bg])) if np.count_nonzero(pure_bg) > 500 else 0.0
         if doc_bg_noise_std > 2.5:
             anomaly_points += 20
             reasons.append(f"Unnatural texture smoothing / inpainting signature around {field_name}")
@@ -97,10 +120,14 @@ def analyze_local_field_forensics(
     bw = max(2, min(5, (x2 - x1) // 10))
     bh = max(2, min(5, (y2 - y1) // 10))
 
-    sobel_v = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-    sobel_h = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-    grad_mag = cv2.magnitude(sobel_v, sobel_h)
-    mean_grad = float(np.mean(grad_mag)) + 1.0
+    if precomputed_grad_mag is not None and precomputed_mean_grad is not None:
+        grad_mag = precomputed_grad_mag
+        mean_grad = precomputed_mean_grad
+    else:
+        sobel_v = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        sobel_h = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        grad_mag = cv2.magnitude(sobel_v, sobel_h)
+        mean_grad = float(np.mean(grad_mag)) + 1.0
 
     outer_edge_left = float(np.mean(grad_mag[y1:y2, max(0, x1 - bw):x1 + bw])) if x1 > bw else 0
     outer_edge_right = float(np.mean(grad_mag[y1:y2, x2 - bw:min(w, x2 + bw)])) if x2 < w - bw else 0
