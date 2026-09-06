@@ -108,6 +108,68 @@ def _build_synthetic_passport_image(
     return buf.getvalue()
 
 
+def _build_synthetic_id_card_no_mrz(
+    name: str = "ARUN KUMAR",
+    doc_number: str = "ID123456",
+    dob: str = "15-05-1995",
+    expiry: str = "15-05-2030",
+    ai_edit: bool = False,
+    quality: int = 95,
+) -> bytes:
+    """Generates a synthetic national ID card with NO MRZ, NO QR code, and NO barcode (Task 1)."""
+    w, h = 800, 500
+    img = Image.new("RGB", (w, h), (246, 245, 242))
+    arr = np.array(img).astype(np.float32)
+    np.random.seed(42)
+    # Natural card scanner sensor noise
+    noise = np.random.normal(0, 2.5, arr.shape)
+    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    img = Image.fromarray(arr)
+    draw = ImageDraw.Draw(img)
+
+    # Security header & border
+    draw.rectangle([0, 0, w, 50], fill=(24, 43, 73))
+    draw.text((25, 16), "NATIONAL IDENTITY CARD", fill=(255, 255, 255))
+    draw.rectangle([8, 8, w - 8, h - 8], outline=(175, 175, 180), width=2)
+
+    # Portrait photo box
+    draw.rectangle([40, 80, 230, 330], fill=(185, 195, 215), outline=(100, 110, 130), width=2)
+    draw.ellipse([95, 130, 175, 210], fill=(130, 140, 160))
+    draw.ellipse([65, 220, 205, 320], fill=(120, 130, 150))
+
+    # Field positions matching field_detector standard coordinates:
+    # Document Number
+    draw.text((310, 60), "Document No. / No de document", fill=(115, 115, 120))
+    draw.text((310, 80), doc_number, fill=(35, 35, 40))
+
+    # Name Field
+    draw.text((310, 115), "Full Name / Nom complet", fill=(115, 115, 120))
+    if not ai_edit:
+        draw.text((310, 135), name, fill=(35, 35, 40))
+    else:
+        # Recreate clean inpainting edit: flat erase patch and digital dark font
+        draw.rectangle([305, 130, 580, 160], fill=(246, 245, 242))
+        draw.text((310, 135), name, fill=(5, 5, 5))
+
+    # Date of Birth
+    draw.text((310, 195), "Date of Birth / Date de naissance", fill=(115, 115, 120))
+    draw.text((310, 215), dob, fill=(35, 35, 40))
+
+    # Expiry Date
+    draw.text((310, 275), "Date of Expiry / Date d expiration", fill=(115, 115, 120))
+    draw.text((310, 295), expiry, fill=(35, 35, 40))
+
+    # Decorative bottom Guilloche line (NO MRZ, NO QR, NO BARCODE)
+    for lx in range(20, w - 20, 30):
+        draw.line([lx, 420, lx + 20, 445], fill=(205, 205, 215), width=1)
+        draw.line([lx + 20, 420, lx, 445], fill=(205, 205, 215), width=1)
+    draw.text((30, 460), "OFFICIAL CITIZEN CARD - REPUBLIC OF DEMO", fill=(140, 140, 150))
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
+
+
 class TestRedTeamMatrix:
     """Matrix of red-team evaluation scenarios."""
 
@@ -311,6 +373,9 @@ class TestRedTeamMatrix:
         # Quality should recognize compression, cross-field remains valid
         assert res["document_quality"]["metrics"]["is_heavy_compression"] is True
         assert res["cross_field_consistency"]["has_mismatch"] is False
+        assert res["status"] == "WARNING"
+        assert res["recommendation"] == "MANUAL_REVIEW_RECOMMENDED"
+        assert res["document_quality"]["status"] in ("DEGRADED", "POOR")
 
         self._record_result("TEST 08", "Heavy JPEG Compression (Q=25)", "Quality Warning / Review", res["status"], res["risk"], "Quality: Heavy Compression", True)
 
@@ -331,7 +396,9 @@ class TestRedTeamMatrix:
 
         assert res["document_quality"]["metrics"]["is_heavy_blur"] is True
         assert res["confidence"] in ("LOW", "MEDIUM")
+        assert res["status"] == "WARNING"
         assert res["recommendation"] == "MANUAL_REVIEW_RECOMMENDED"
+        assert res["document_quality"]["status"] in ("DEGRADED", "POOR")
 
         self._record_result("TEST 09", "Heavy Optical Blur", "Quality Warning / Review", res["status"], res["risk"], "Quality: Severe Blur", True)
 
@@ -361,6 +428,83 @@ class TestRedTeamMatrix:
         assert res["cross_field_consistency"]["mismatch_count"] >= 2
 
         self._record_result("TEST 10", "Multiple Fields (Name, DOB, ID)", "High Risk / FAIL", res["status"], res["risk"], "Multiple Cross-Field Mismatches + Typography", True)
+
+    def test_11_no_mrz_no_qr_clean_ai_edit(self):
+        """TEST 11: Document with NO MRZ / NO QR code (Task 1 & 2).
+
+        Version A (Genuine): Must return PASS / CLEAR / Low Risk.
+        Version B (Clean AI Edit on Name): Must return WARNING / FAIL / Elevated Risk
+        based purely on visual typography & forensics without relying on MRZ or QR code.
+        """
+        # Version A - Genuine Authentic Synthetic ID Card
+        doc_bytes_a = _build_synthetic_id_card_no_mrz(name="ARUN KUMAR", ai_edit=False)
+        doc_data_a = {
+            "full_name": "ARUN KUMAR",
+            "document_number": "ID123456",
+            "date_of_birth": "1995-05-15",
+            "expiry_date": "2030-05-15",
+        }
+        res_a = detect_tampering(doc_bytes_a, "image/jpeg", extracted_data=doc_data_a)
+        assert res_a["status"] == "PASS"
+        assert res_a["risk"] < 25
+        assert res_a["recommendation"] == "CLEAR"
+        assert res_a["document_quality"]["status"] == "ACCEPTABLE"
+
+        self._record_result("TEST 11A", "No-MRZ Card Original (ARUN KUMAR)", "Low Risk / PASS", res_a["status"], res_a["risk"], "None (Clean baseline)", True)
+
+        # Version B - Clean AI text replacement on Name field
+        doc_bytes_b = _build_synthetic_id_card_no_mrz(name="RAHUL SHARMA", ai_edit=True)
+        doc_data_b = {
+            "full_name": "RAHUL SHARMA",
+            "document_number": "ID123456",
+            "date_of_birth": "1995-05-15",
+            "expiry_date": "2030-05-15",
+        }
+        res_b = detect_tampering(doc_bytes_b, "image/jpeg", extracted_data=doc_data_b)
+        assert res_b["status"] in ("WARNING", "FAIL")
+        assert res_b["risk"] >= 30
+        assert res_b["recommendation"] in ("MANUAL_REVIEW_RECOMMENDED", "SECONDARY_INSPECTION_RECOMMENDED")
+        assert res_b["cross_field_consistency"]["has_mismatch"] is False
+        # Verify Name region flagged in heatmap overlay
+        name_highlight = next((h for h in res_b.get("highlighted_regions", []) if h["field"] == "name"), None)
+        assert name_highlight is not None
+        assert name_highlight["severity"] in ("warning", "suspicious")
+
+        self._record_result("TEST 11B", "No-MRZ AI Inpainted (RAHUL SHARMA)", "Review / FAIL", res_b["status"], res_b["risk"], "Typography Inconsistency on Name", True)
+
+    def test_12_consistent_mrz_tampering(self):
+        """TEST 12: Consistent MRZ Tampering (Task 3).
+
+        Both visible name AND MRZ name are modified to RAHUL SHARMA with valid check digits.
+        Cross-field consistency passes (0 mismatches), but visual typography & local
+        forensics in the Name region still identify the digital modification.
+        """
+        doc_bytes = _build_synthetic_passport_image(
+            name="RAHUL SHARMA",
+            mrz_name="RAHUL<<SHARMA<<<<<<<<<<<<<<<<<<<<<<<<<",
+            ai_text_overlay=True,
+        )
+        doc_data = {
+            "full_name": "RAHUL SHARMA",
+            "document_number": "P1234567",
+            "date_of_birth": "1995-05-15",
+            "expiry_date": "2030-05-15",
+        }
+        mrz_line_1 = "P<INDRAHUL<<SHARMA<<<<<<<<<<<<<<<<<<<<<<<<<"
+        mrz_line_2 = "P1234567<1IND9505151M3005156<<<<<<<<<<<<<<<4"
+        res = detect_tampering(doc_bytes, "image/jpeg", extracted_data=doc_data, mrz_lines=(mrz_line_1, mrz_line_2))
+
+        # Cross-field check must pass because both fields match
+        assert res["cross_field_consistency"]["has_mismatch"] is False
+        # But visual modification in Name field must still trigger warning/suspicion
+        assert res["status"] in ("WARNING", "FAIL")
+        assert res["risk"] >= 30
+        assert res["recommendation"] in ("MANUAL_REVIEW_RECOMMENDED", "SECONDARY_INSPECTION_RECOMMENDED")
+        name_highlight = next((h for h in res.get("highlighted_regions", []) if h["field"] == "name"), None)
+        assert name_highlight is not None
+        assert name_highlight["severity"] in ("warning", "suspicious")
+
+        self._record_result("TEST 12", "Consistent MRZ Tampering (RAHUL SHARMA)", "Review / FAIL", res["status"], res["risk"], "Visual Typography in Name", True)
 
     @classmethod
     def teardown_class(cls):

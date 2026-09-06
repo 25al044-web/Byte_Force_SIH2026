@@ -47,25 +47,41 @@ def _compute_stroke_width(gray_patch: np.ndarray) -> float:
     blur = cv2.GaussianBlur(gray_patch, (3, 3), 0)
     _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    dist = cv2.distanceTransform(thresh, cv2.DIST_L2, 5)
+    # Filter out huge blobs (e.g. solid banners, photo borders)
+    ph, pw = gray_patch.shape[:2]
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(thresh, connectivity=8)
+    clean_thresh = np.zeros_like(thresh)
+    max_area = (ph * pw) // 4
+    for i in range(1, num_labels):
+        x, y, w, h, area = stats[i]
+        if area <= max_area and h < int(ph * 0.75) and w < int(pw * 0.85):
+            clean_thresh[labels == i] = 255
+
+    dist = cv2.distanceTransform(clean_thresh, cv2.DIST_L2, 5)
     # Average peak distance across text pixels represents half-stroke width
-    text_pixels = dist[thresh > 0]
+    text_pixels = dist[clean_thresh > 0]
     if len(text_pixels) == 0:
         return 1.0
     return float(np.median(text_pixels) * 2.0)
 
 
 def _get_text_ink_color(bgr_patch: np.ndarray, gray_patch: np.ndarray) -> Tuple[float, float, float]:
-    """Computes median (B, G, R) color of the dark text pixels."""
-    blur = cv2.GaussianBlur(gray_patch, (3, 3), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    text_mask = thresh > 0
-    if np.count_nonzero(text_mask) == 0:
+    """Computes median (B, G, R) color of the primary dark text pixels."""
+    bg_val = float(np.median(gray_patch))
+    dark_mask = gray_patch < (bg_val - 25)
+    if np.count_nonzero(dark_mask) < 10:
         return (0.0, 0.0, 0.0)
 
-    b = float(np.median(bgr_patch[:, :, 0][text_mask]))
-    g = float(np.median(bgr_patch[:, :, 1][text_mask]))
-    r = float(np.median(bgr_patch[:, :, 2][text_mask]))
+    dark_pixels = gray_patch[dark_mask]
+    # Focus on the darkest 6% of dark pixels to isolate core value ink from anti-aliasing / faint labels
+    cutoff = float(np.percentile(dark_pixels, 6))
+    core_ink_mask = dark_mask & (gray_patch <= cutoff)
+    if np.count_nonzero(core_ink_mask) < 3:
+        core_ink_mask = dark_mask
+
+    b = float(np.median(bgr_patch[:, :, 0][core_ink_mask]))
+    g = float(np.median(bgr_patch[:, :, 1][core_ink_mask]))
+    r = float(np.median(bgr_patch[:, :, 2][core_ink_mask]))
     return (b, g, r)
 
 
@@ -123,12 +139,12 @@ def analyze_typography_consistency(
     ref_stroke = _compute_stroke_width(ref_gray)
 
     stroke_ratio = name_stroke / (ref_stroke + 0.1)
-    if stroke_ratio > 1.85 or stroke_ratio < 0.55:
+    if stroke_ratio > 1.65 or stroke_ratio < 0.58:
         inconsistency_points += 25
         reasons.append(f"Font stroke thickness in Name field ({name_stroke:.1f}px) deviates from document baseline ({ref_stroke:.1f}px)")
-    elif stroke_ratio > 1.5 or stroke_ratio < 0.65:
-        inconsistency_points += 12
-        reasons.append("Mild font weight variance between Name field and adjacent text")
+    elif stroke_ratio > 1.45 or stroke_ratio < 0.65:
+        inconsistency_points += 15
+        reasons.append(f"Noticeable font weight variance between Name field ({name_stroke:.1f}px) and adjacent text ({ref_stroke:.1f}px)")
 
     # 2. Character Spacing / Kerning Regularity
     name_components = _extract_text_components(name_gray)
@@ -153,12 +169,12 @@ def analyze_typography_consistency(
     # Euclidean color distance in BGR space
     ink_color_dist = float(np.sqrt(sum((a - b) ** 2 for a, b in zip(name_ink, ref_ink))))
 
-    if ink_color_dist > 45.0:
+    if ink_color_dist > 35.0:
         inconsistency_points += 30
         reasons.append(f"Ink color discrepancy: Name field ink differs significantly from document baseline ({ink_color_dist:.1f} color distance)")
-    elif ink_color_dist > 28.0:
+    elif ink_color_dist > 22.0:
         inconsistency_points += 15
-        reasons.append("Noticeable ink tint or contrast variation detected in Name field")
+        reasons.append(f"Noticeable ink tint or contrast variation detected in Name field ({ink_color_dist:.1f} color distance)")
 
     # 4. Anti-Aliasing & Edge Gradient Profile
     # Digitally rendered text on scanned backgrounds has sharp step edges without ink bleed
@@ -173,18 +189,21 @@ def analyze_typography_consistency(
         ref_sharpness = float(np.mean(ref_grad[ref_edge_mask]))
         sharpness_ratio = name_sharpness / (ref_sharpness + 1.0)
 
-        if sharpness_ratio > 2.0 or sharpness_ratio < 0.5:
+        if sharpness_ratio > 1.8 or sharpness_ratio < 0.55:
             inconsistency_points += 20
             reasons.append(f"Edge transition gradient in Name differs from document printing style (ratio {sharpness_ratio:.1f}x)")
+        elif sharpness_ratio > 1.35 or sharpness_ratio < 0.70:
+            inconsistency_points += 10
+            reasons.append(f"Mild edge sharpness discrepancy in Name field (ratio {sharpness_ratio:.1f}x)")
     else:
         sharpness_ratio = 1.0
 
     clamped_score = max(0, min(100, inconsistency_points))
     typography_similarity = max(0, 100 - clamped_score)
 
-    if clamped_score >= 40:
+    if clamped_score >= 35:
         status = "SUSPICIOUS"
-    elif clamped_score >= 18:
+    elif clamped_score >= 15:
         status = "WARNING"
     else:
         status = "PASS"

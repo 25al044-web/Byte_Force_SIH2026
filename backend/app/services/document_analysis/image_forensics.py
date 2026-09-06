@@ -83,8 +83,14 @@ def analyze_local_field_forensics(
         anomaly_points += 25
         reasons.append(f"Abnormal sensor noise spike in {field_name} region (ratio {noise_ratio:.1f}x)")
     elif doc_noise_std > 3.0 and patch_noise_std < 0.35 and (y2 - y1) > 20:
-        anomaly_points += 20
-        reasons.append(f"Unnatural texture smoothing / inpainting signature around {field_name}")
+        # Only flag smoothing if the document background actually has texture/grain
+        edges = cv2.Canny(gray, 30, 100)
+        dilated = cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
+        pure_bg = (dilated == 0) & (gray > 200)
+        doc_bg_noise_std = float(np.std(noise_res[pure_bg])) if np.count_nonzero(pure_bg) > 500 else 0.0
+        if doc_bg_noise_std > 2.5:
+            anomaly_points += 20
+            reasons.append(f"Unnatural texture smoothing / inpainting signature around {field_name}")
 
     # 3. Boundary Edge Step Discontinuity
     # Check if a rectangular perimeter seam exists around the field (requires both H & V steps)

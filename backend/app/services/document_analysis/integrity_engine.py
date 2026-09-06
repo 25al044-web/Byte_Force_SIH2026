@@ -152,7 +152,11 @@ def run_document_integrity_pipeline(
 
     # 7. Typography Analysis on Name Field
     if name_region:
-        name_typography_result = analyze_typography_consistency(bgr, gray, name_region.pixel_bbox)
+        ref_region = next((r for r in regions if r.field_name == "date_of_birth"), None)
+        if not ref_region:
+            ref_region = next((r for r in regions if r.field_name in ("expiry_date", "document_number")), None)
+        ref_bbox = ref_region.pixel_bbox if ref_region else None
+        name_typography_result = analyze_typography_consistency(bgr, gray, name_region.pixel_bbox, reference_pixel_bbox=ref_bbox)
         # Update name highlight if typography is suspicious
         if name_typography_result["status"] in ("SUSPICIOUS", "WARNING"):
             name_highlight = next((h for h in highlighted_regions if h["field"] == "name"), None)
@@ -180,19 +184,21 @@ def run_document_integrity_pipeline(
 
     # Priority B: Name Field Typography & Local Forensic Inconsistency
     # (Addresses the jury failure scenario)
-    if name_typography_result and name_typography_result["score"] >= 35:
+    if name_typography_result and name_typography_result["score"] >= 30:
         risk_points += 35
         all_reasons.append(f"Typography inconsistency in Name field: {'; '.join(name_typography_result['reasons'][:1])}")
-    elif name_typography_result and name_typography_result["score"] >= 18:
-        risk_points += 15
-        all_reasons.append("Minor font variation detected in Name field")
+    elif name_typography_result and name_typography_result["score"] >= 15:
+        risk_points += 18
+        all_reasons.append(f"Typography variation in Name field: {'; '.join(name_typography_result['reasons'][:1])}")
 
     if max_field_anomaly >= 40:
         risk_points += 30
         if local_forensic_reasons:
             all_reasons.append(f"Local image forensic anomaly: {local_forensic_reasons[0]}")
     elif max_field_anomaly >= 20:
-        risk_points += 15
+        risk_points += 20
+        if local_forensic_reasons:
+            all_reasons.append(f"Local image forensic anomaly: {local_forensic_reasons[0]}")
 
     # Priority C: AI Manipulation Indicator
     if ai_manipulation_res["indicator"] == "HIGH":
@@ -210,46 +216,49 @@ def run_document_integrity_pipeline(
     overall_risk = max(0, min(100, int(round(risk_points))))
 
     # 11. Final Classification & Recommendation (Phase 14 & 15)
-    # 0 - 24: LOW / PASS
-    # 25 - 54: MEDIUM / WARNING
-    # 55 - 100: HIGH / FAIL
-    if overall_risk >= 55 or cross_val.get("has_mismatch"):
+    # Check if image quality is degraded or poor (blur or heavy compression)
+    is_quality_degraded = (
+        quality["status"] in ("DEGRADED", "POOR")
+        or quality["metrics"].get("is_heavy_blur", False)
+        or quality["metrics"].get("is_heavy_compression", False)
+    )
+
+    if is_quality_degraded and not cross_val.get("has_mismatch"):
+        status = "WARNING"
+        risk_level = "MEDIUM"
+        overall_risk = max(overall_risk, 30)
+        recommendation = "MANUAL_REVIEW_RECOMMENDED"
+        blur_or_comp = "heavy optical blur" if quality["metrics"].get("is_heavy_blur") else "heavy compression artifacts"
+        summary_reason = f"Document visual quality is degraded ({blur_or_comp}). Forensic integrity is inconclusive; manual verification required."
+    elif overall_risk >= 55 or cross_val.get("has_mismatch"):
         status = "FAIL"
         risk_level = "HIGH"
         recommendation = "SECONDARY_INSPECTION_RECOMMENDED"
+        summary_reason = "; ".join(all_reasons[:3]) if all_reasons else "Multiple significant tamper indicators detected."
     elif overall_risk >= 20:
         status = "WARNING"
         risk_level = "MEDIUM"
         recommendation = "MANUAL_REVIEW_RECOMMENDED"
+        summary_reason = "; ".join(all_reasons[:3]) if all_reasons else "Document visual anomaly detected."
     else:
         status = "PASS"
         risk_level = "LOW"
-        # If quality is poor/degraded, recommend manual review rather than clear
-        if quality["status"] in ("DEGRADED", "POOR"):
-            recommendation = "MANUAL_REVIEW_RECOMMENDED"
-            all_reasons.append(quality["summary"])
-        else:
-            recommendation = "CLEAR"
-
-    # Construct comprehensive summary reason
-    if not all_reasons:
+        recommendation = "CLEAR"
         if quality["status"] == "ACCEPTABLE":
             summary_reason = "No significant visual tamper indicators detected. Compression, typography, and texture appear consistent."
         else:
             summary_reason = f"No clear tamper indicators detected. {quality['summary']}"
-    else:
-        summary_reason = "; ".join(all_reasons[:3])
 
     # Construct sub-checks summary dictionary for the explainable UI
     sub_checks = {
         "text_region_integrity": {
             "name": "Text Region Integrity",
-            "status": "PASS" if max_field_anomaly < 20 else ("WARNING" if max_field_anomaly < 45 else "SUSPICIOUS"),
+            "status": "INCONCLUSIVE" if (is_quality_degraded and max_field_anomaly < 20 and not cross_val.get("has_mismatch")) else ("PASS" if max_field_anomaly < 20 else ("WARNING" if max_field_anomaly < 45 else "SUSPICIOUS")),
             "score": max_field_anomaly,
         },
         "typography_consistency": {
             "name": "Typography Consistency",
-            "status": name_typography_result["status"] if name_typography_result else "PASS",
+            "status": "INCONCLUSIVE" if (is_quality_degraded and (name_typography_result is None or name_typography_result["score"] < 20) and not cross_val.get("has_mismatch")) else (name_typography_result["status"] if name_typography_result else "PASS"),
             "score": name_typography_result["score"] if name_typography_result else 0,
             "similarity": name_typography_result["typography_similarity"] if name_typography_result else 100,
         },
@@ -260,7 +269,7 @@ def run_document_integrity_pipeline(
         },
         "image_forensics": {
             "name": "Local Image Forensics",
-            "status": "PASS" if overall_risk < 20 else ("WARNING" if overall_risk < 50 else "SUSPICIOUS"),
+            "status": "INCONCLUSIVE" if (is_quality_degraded and not cross_val.get("has_mismatch") and overall_risk <= 30) else ("PASS" if overall_risk < 20 else ("WARNING" if overall_risk < 50 else "SUSPICIOUS")),
             "score": overall_risk,
         },
         "ai_manipulation": {

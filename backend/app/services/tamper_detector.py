@@ -637,7 +637,7 @@ def detect_tampering(
     if clamped_risk >= 50 or layered_res["cross_field_consistency"].get("has_mismatch"):
         status = "FAIL"
         recommendation = "SECONDARY_INSPECTION_RECOMMENDED"
-    elif clamped_risk >= 20:
+    elif clamped_risk >= 20 or layered_res["status"] == "WARNING":
         status = "WARNING"
         recommendation = "MANUAL_REVIEW_RECOMMENDED"
     else:
@@ -660,7 +660,9 @@ def detect_tampering(
         else:
             reason = "Elevated composite forensic tamper risk detected across document visual features"
     elif status == "WARNING":
-        if reasons:
+        if layered_res.get("reason") and "Document visual quality is degraded" in layered_res["reason"]:
+            reason = layered_res["reason"]
+        elif reasons:
             reason = "Document visual anomaly detected: " + "; ".join(reasons[:2])
         else:
             reason = "Moderate localized visual inconsistency detected, manual verification recommended"

@@ -26,6 +26,77 @@ export function TamperCard({ check, documentPreview }) {
         : '#e05252'
     : '#445066'
 
+  const isQualityDegraded = quality?.status === 'DEGRADED' || quality?.status === 'POOR' || quality?.metrics?.is_heavy_blur || quality?.metrics?.is_heavy_compression
+
+  const getIntegrityBadge = () => {
+    if (isQualityDegraded && status !== 'FAIL') {
+      return {
+        label: 'INCONCLUSIVE (QUALITY DEGRADED)',
+        cls: 'badge-inconclusive',
+        color: '#f59e0b',
+        border: 'rgba(245, 158, 11, 0.3)',
+        bg: 'rgba(245, 158, 11, 0.1)',
+      }
+    }
+    if (status === 'FAIL') {
+      return {
+        label: 'SUSPICIOUS (ANOMALY DETECTED)',
+        cls: 'badge-suspicious',
+        color: '#ef4444',
+        border: 'rgba(239, 68, 68, 0.35)',
+        bg: 'rgba(239, 68, 68, 0.12)',
+      }
+    }
+    if (status === 'WARNING') {
+      return {
+        label: 'REVIEW RECOMMENDED',
+        cls: 'badge-warning',
+        color: '#f59e0b',
+        border: 'rgba(245, 158, 11, 0.3)',
+        bg: 'rgba(245, 158, 11, 0.1)',
+      }
+    }
+    return {
+      label: 'NO SIGNIFICANT ANOMALY DETECTED',
+      cls: 'badge-clean',
+      color: '#10b981',
+      border: 'rgba(16, 185, 129, 0.3)',
+      bg: 'rgba(16, 185, 129, 0.1)',
+    }
+  }
+
+  const getQualityBadge = () => {
+    const qStatus = (quality?.status || 'ACCEPTABLE').toUpperCase()
+    if (qStatus === 'POOR') {
+      return {
+        label: `QUALITY: POOR (${quality.score || 40}%)`,
+        cls: 'quality-poor',
+        color: '#ef4444',
+        border: 'rgba(239, 68, 68, 0.35)',
+        bg: 'rgba(239, 68, 68, 0.12)',
+      }
+    }
+    if (qStatus === 'DEGRADED') {
+      return {
+        label: `QUALITY: DEGRADED (${quality.score || 60}%)`,
+        cls: 'quality-degraded',
+        color: '#f59e0b',
+        border: 'rgba(245, 158, 11, 0.3)',
+        bg: 'rgba(245, 158, 11, 0.1)',
+      }
+    }
+    return {
+      label: `QUALITY: ACCEPTABLE (${quality?.score || 100}%)`,
+      cls: 'quality-acceptable',
+      color: '#10b981',
+      border: 'rgba(16, 185, 129, 0.3)',
+      bg: 'rgba(16, 185, 129, 0.1)',
+    }
+  }
+
+  const integrityBadge = getIntegrityBadge()
+  const qualityBadge = getQualityBadge()
+
   const getRecommendationBadge = () => {
     switch (recommendation) {
       case 'SECONDARY_INSPECTION_RECOMMENDED':
@@ -54,7 +125,7 @@ export function TamperCard({ check, documentPreview }) {
         }
       default:
         return {
-          label: 'DOCUMENT CLEARED',
+          label: 'CLEAR / NO ANOMALY DETECTED',
           cls: 'rec-badge-clear',
           icon: (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -74,11 +145,6 @@ export function TamperCard({ check, documentPreview }) {
         <div className="tic-title-group">
           <div className="tic-eyebrow-row">
             <span className="tic-category">LAYERED DIGITAL FORENSICS & DOCUMENT INTEGRITY</span>
-            {quality?.status && (
-              <span className={`tic-quality-chip quality-${quality.status.toLowerCase()}`}>
-                Quality: {quality.status} ({quality.score || 100}%)
-              </span>
-            )}
             <span className="tic-confidence-chip">Confidence: {confidence}</span>
           </div>
 
@@ -93,6 +159,24 @@ export function TamperCard({ check, documentPreview }) {
             <div className={`tic-recommendation-pill ${recBadge.cls}`}>
               {recBadge.icon}
               <span>{recBadge.label}</span>
+            </div>
+          </div>
+
+          {/* Dual Badge Bar: Clear Quality vs Integrity Separation */}
+          <div className="tic-dual-badge-bar">
+            <div
+              className={`tic-status-chip ${qualityBadge.cls}`}
+              style={{ borderColor: qualityBadge.border, backgroundColor: qualityBadge.bg, color: qualityBadge.color }}
+            >
+              <span className="tic-chip-dot" style={{ backgroundColor: qualityBadge.color }} />
+              <span>{qualityBadge.label}</span>
+            </div>
+            <div
+              className={`tic-status-chip ${integrityBadge.cls}`}
+              style={{ borderColor: integrityBadge.border, backgroundColor: integrityBadge.bg, color: integrityBadge.color }}
+            >
+              <span className="tic-chip-dot" style={{ backgroundColor: integrityBadge.color }} />
+              <span>DOCUMENT INTEGRITY: {integrityBadge.label}</span>
             </div>
           </div>
         </div>

@@ -94,7 +94,7 @@ def assess_image_quality(
         quality_score -= 25
 
     if is_heavy_compression:
-        quality_score -= 20
+        quality_score -= 35
 
     if has_extreme_glare:
         quality_score -= 20
