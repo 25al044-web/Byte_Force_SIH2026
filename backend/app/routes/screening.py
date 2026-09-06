@@ -30,6 +30,7 @@ from app.models.screening import (
     RiskLevel,
     ScreeningResponse,
     TamperCheckResult,
+    TrustedRegistryCheckResult,
 )
 
 import cv2
@@ -42,6 +43,7 @@ from app.services.face_matcher import compare_faces, extract_selfie_embedding
 from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
 from app.services.tamper_detector import detect_tampering, _decode_and_sanitize_image
+from app.services.trusted_registry import cross_verify_identity
 import logging
 from app.services.blockchain.audit_service import create_audit
 from app.services.case_service import save_case
@@ -206,6 +208,31 @@ async def screen_identity(
         ai_manipulation=tamper_res.get("ai_manipulation"),
     )
 
+    # 10.5 REAL Trusted Identity Registry Cross-Verification
+    doc_embedding = face_res.get("_doc_embedding")
+    trusted_registry_res = cross_verify_identity(
+        extracted_data={
+            "document_number": active_doc_number,
+            "full_name": doc_info.get("full_name"),
+            "date_of_birth": doc_info.get("date_of_birth"),
+            "nationality": doc_info.get("nationality"),
+            "document_type": doc_info.get("document_type"),
+        },
+        doc_embedding=doc_embedding,
+        selfie_embedding=selfie_embedding,
+    )
+    trusted_registry_check = TrustedRegistryCheckResult(
+        status=trusted_registry_res["status"],
+        record_found=trusted_registry_res["record_found"],
+        registry_id=trusted_registry_res.get("registry_id"),
+        reason=trusted_registry_res["reason"],
+        mismatches=trusted_registry_res.get("mismatches"),
+        stored_record=trusted_registry_res.get("stored_record"),
+        comparisons=trusted_registry_res.get("comparisons"),
+        tri_face_match=trusted_registry_res.get("tri_face_match"),
+        risk_level=trusted_registry_res.get("risk_level"),
+    )
+
     # 11. Assemble checks container
     checks = ChecksContainer(
         mrz=mrz_check,
@@ -214,27 +241,44 @@ async def screen_identity(
         face_match=face_check,
         duplicate_identity=duplicate_check,
         blacklist=blacklist_check,
+        trusted_registry=trusted_registry_check,
     )
 
-    # 11. REAL Explainable Risk Engine
+    # 12. REAL Explainable Risk Engine
     risk_evaluation = calculate_risk(checks)
 
-    # 12. Build the completed result, then append the isolated fail-open audit.
+    # 13. Build the completed result, then append the isolated fail-open audit.
     screening_id = f"SCR-2026-{uuid.uuid4().hex[:8].upper()}"
     result_payload = {
         "risk": {"score": risk_evaluation["score"], "level": risk_evaluation["level"]},
-        "checks": {"tamper": {"status": tamper_res["status"], "recommendation": tamper_res.get("recommendation")}, "face_match": {"status": face_res["status"]}},
+        "checks": {
+            "tamper": {"status": tamper_res["status"], "recommendation": tamper_res.get("recommendation")},
+            "face_match": {"status": face_res["status"]},
+            "trusted_registry": {"status": trusted_registry_res["status"], "record_found": trusted_registry_res["record_found"]},
+        },
     }
     blockchain_audit = create_audit(screening_id, document_bytes, selfie_bytes, result_payload)
 
-    # 13. Persist screening case for case review
+    # Determine recommendation & main reason for case review
+    recommendation = tamper_res.get("recommendation") or "MANUAL_REVIEW_RECOMMENDED"
+    if trusted_registry_res["status"] == "MISMATCH":
+        if recommendation != "REJECT_FRAUDULENT":
+            recommendation = "SECONDARY_INSPECTION_RECOMMENDED"
+
+    main_reason = (
+        trusted_registry_res["reason"]
+        if trusted_registry_res["status"] == "MISMATCH"
+        else (risk_evaluation["explanations"][0] if risk_evaluation["explanations"] else (tamper_res.get("reason") or "Screening completed"))
+    )
+
+    # 14. Persist screening case for case review
     try:
         save_case(
             screening_id=screening_id,
             risk_score=risk_evaluation["score"],
             risk_level=risk_evaluation["level"],
-            recommendation=tamper_res.get("recommendation") or "MANUAL_REVIEW_RECOMMENDED",
-            main_reason=risk_evaluation["explanations"][0] if risk_evaluation["explanations"] else (tamper_res.get("reason") or "Screening completed"),
+            recommendation=recommendation,
+            main_reason=main_reason,
             status=tamper_res["status"],
             extracted_identity={
                 "document_type": doc_info.get("document_type"),
@@ -252,7 +296,7 @@ async def screen_identity(
     except Exception as save_err:
         logger.warning("Failed to persist screening case: %s", save_err)
 
-    # 14. Return formal ScreeningResponse
+    # 15. Return formal ScreeningResponse
     return ScreeningResponse(
         screening_id=screening_id,
         document=DocumentExtractedData(
@@ -271,4 +315,5 @@ async def screen_identity(
         ),
         explanations=risk_evaluation["explanations"],
         blockchain_audit=blockchain_audit,
+        trusted_registry=trusted_registry_check,
     )

@@ -198,3 +198,74 @@ export async function deactivateBlacklistEntry(documentNumber) {
   }
   return data
 }
+
+/**
+ * Lists trusted identities from the local demo registry.
+ */
+export async function getTrustedIdentities({ search, activeOnly = false, limit = 100, offset = 0 } = {}) {
+  const params = new URLSearchParams()
+  params.set('active_only', String(activeOnly))
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (search) params.set('search', search)
+
+  const res = await fetch(`${API_BASE_URL}/api/trusted-identities?${params.toString()}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || 'Failed to fetch trusted identities.')
+  }
+  return res.json()
+}
+
+/**
+ * Registers a new identity in the trusted registry.
+ * Supports FormData (with photo) or plain JS object.
+ */
+export async function registerTrustedIdentity(payload) {
+  const isFormData = payload instanceof FormData
+  const options = {
+    method: 'POST',
+    body: isFormData ? payload : JSON.stringify(payload),
+  }
+  if (!isFormData) {
+    options.headers = { 'Content-Type': 'application/json' }
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/trusted-identities`, options)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = data.detail
+    if (Array.isArray(detail)) {
+      throw new Error(detail.map((e) => `${e.loc ? e.loc.join('.') + ': ' : ''}${e.msg}`).join('; '))
+    }
+    throw new Error(typeof detail === 'string' ? detail : `Registration failed (${res.status}).`)
+  }
+  return data
+}
+
+/**
+ * Look up a trusted identity by document number.
+ */
+export async function lookupTrustedIdentity(documentNumber) {
+  const res = await fetch(`${API_BASE_URL}/api/trusted-identities/lookup/${encodeURIComponent(documentNumber)}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.detail || `Identity lookup failed (${res.status}).`)
+  }
+  return data
+}
+
+/**
+ * Soft-deactivates a trusted identity record.
+ */
+export async function deactivateTrustedIdentity(registryId) {
+  const res = await fetch(`${API_BASE_URL}/api/trusted-identities/${encodeURIComponent(registryId)}/deactivate`, {
+    method: 'POST',
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.detail || `Deactivation failed (${res.status}).`)
+  }
+  return data
+}
+

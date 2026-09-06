@@ -16,6 +16,17 @@ export function Sidebar({ backendOnline, demoMode, currentView = 'screening', on
       ),
     },
     {
+      id: 'trusted_registry',
+      label: t('trustedRegistry'),
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 11l-3 3-2-2" />
+        </svg>
+      ),
+    },
+    {
       id: 'watchlist',
       label: t('watchlist'),
       badge: 'LIVE',

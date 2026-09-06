@@ -48,6 +48,45 @@ SYNTHETIC_BLACKLIST_SEEDS = [
     },
 ]
 
+SYNTHETIC_TRUSTED_SEEDS = [
+    {
+        "registry_id": "TIR-ID123456",
+        "full_name": "ARUN KUMAR",
+        "document_number": "ID123456",
+        "document_type": "PASSPORT",
+        "date_of_birth": "1995-05-15",
+        "nationality": "IND",
+        "photo_path_or_reference": None,
+        "photo_embedding": None,
+        "notes": "Verified synthetic passport identity for cross-verification testing",
+        "is_active": 1,
+    },
+    {
+        "registry_id": "TIR-DL987654",
+        "full_name": "PRIYA SHARMA",
+        "document_number": "DL987654",
+        "document_type": "DRIVING_LICENSE",
+        "date_of_birth": "1992-08-24",
+        "nationality": "IND",
+        "photo_path_or_reference": None,
+        "photo_embedding": None,
+        "notes": "Synthetic driving license registered record",
+        "is_active": 1,
+    },
+    {
+        "registry_id": "TIR-PASS456789",
+        "full_name": "JOHN DOE",
+        "document_number": "PASS456789",
+        "document_type": "PASSPORT",
+        "date_of_birth": "1988-12-05",
+        "nationality": "USA",
+        "photo_path_or_reference": None,
+        "photo_embedding": None,
+        "notes": "Synthetic international passport record",
+        "is_active": 1,
+    },
+]
+
 
 def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Create and return a new SQLite database connection.
@@ -94,6 +133,53 @@ def seed_blacklist_data(conn: sqlite3.Connection) -> int:
                 rec["reason"],
                 rec["severity"],
                 rec["is_active"],
+            ),
+        )
+        if cursor.rowcount > 0:
+            inserted_count += 1
+
+    conn.commit()
+    return inserted_count
+
+
+def seed_trusted_registry(conn: sqlite3.Connection) -> int:
+    """Idempotently seed synthetic demonstration trusted registry records.
+
+    Uses INSERT OR IGNORE against the unique registry_id column.
+
+    Returns:
+        Number of newly inserted records.
+    """
+    cursor = conn.cursor()
+    inserted_count = 0
+    query = """
+        INSERT OR IGNORE INTO trusted_identities (
+            registry_id,
+            full_name,
+            document_number,
+            document_type,
+            date_of_birth,
+            nationality,
+            photo_path_or_reference,
+            photo_embedding,
+            notes,
+            is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    for rec in SYNTHETIC_TRUSTED_SEEDS:
+        cursor.execute(
+            query,
+            (
+                rec["registry_id"],
+                rec["full_name"],
+                rec["document_number"],
+                rec["document_type"],
+                rec["date_of_birth"],
+                rec.get("nationality"),
+                rec.get("photo_path_or_reference"),
+                rec.get("photo_embedding"),
+                rec.get("notes"),
+                rec.get("is_active", 1),
             ),
         )
         if cursor.rowcount > 0:
@@ -191,9 +277,43 @@ def init_db(db_path: Optional[str] = None) -> None:
             ON screening_cases(screening_id);
             """
         )
+
+        # Trusted Identity Registry store
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trusted_identities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                registry_id TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL,
+                document_number TEXT NOT NULL,
+                document_type TEXT NOT NULL,
+                date_of_birth TEXT NOT NULL,
+                nationality TEXT,
+                photo_path_or_reference TEXT,
+                photo_embedding TEXT,
+                notes TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_trusted_doc_num
+            ON trusted_identities(document_number);
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_trusted_reg_id
+            ON trusted_identities(registry_id);
+            """
+        )
         conn.commit()
 
         # Seed synthetic records idempotently
         seed_blacklist_data(conn)
+        seed_trusted_registry(conn)
     finally:
         conn.close()

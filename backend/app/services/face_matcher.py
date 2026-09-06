@@ -269,6 +269,7 @@ def compare_faces(
             "similarity": None,
             "reason": "No face detected in selfie image",
             "_selfie_embedding": None,
+            "_doc_embedding": None,
             "_selfie_checked": True,
         }
 
@@ -292,12 +293,20 @@ def compare_faces(
             "similarity": None,
             "reason": "No face detected in document image",
             "_selfie_embedding": selfie_embedding_list,
+            "_doc_embedding": None,
             "_selfie_checked": True,
         }
 
     # ── 4. Select primary document face ──────────────────────────────────────
     doc_face = max(doc_faces, key=_area)
     doc_emb = doc_face.embedding
+    doc_embedding_list = None
+    if doc_emb is not None:
+        doc_norm = float(np.linalg.norm(doc_emb))
+        if doc_norm == 0:
+            doc_embedding_list = doc_emb.tolist()
+        else:
+            doc_embedding_list = (doc_emb / doc_norm).astype(float).tolist()
 
     if doc_emb is None or selfie_emb is None:
         return {
@@ -305,6 +314,7 @@ def compare_faces(
             "similarity": None,
             "reason": "Face embedding unavailable for one or both images",
             "_selfie_embedding": selfie_embedding_list,
+            "_doc_embedding": doc_embedding_list,
             "_selfie_checked": True,
         }
 
@@ -331,6 +341,7 @@ def compare_faces(
         "similarity": similarity,
         "reason": reason,
         "_selfie_embedding": selfie_embedding_list,
+        "_doc_embedding": doc_embedding_list,
         "_selfie_checked": True,
     }
 
@@ -415,3 +426,22 @@ def extract_selfie_embedding(
         return emb.tolist()
     normalised = (emb / norm).astype(float)
     return normalised.tolist()
+
+
+def extract_face_embedding(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+) -> Optional[List[float]]:
+    """Extract primary face embedding from an arbitrary image (e.g. trusted reference photo)."""
+    return extract_selfie_embedding(image_bytes, mime_type)
+
+
+def compute_embedding_similarity(emb1: List[float], emb2: List[float]) -> float:
+    """Compute 0-100 similarity percentage between two L2-normalized embeddings."""
+    np = _import_numpy()
+    v1 = np.asarray(emb1, dtype=float)
+    v2 = np.asarray(emb2, dtype=float)
+    dot = float(np.dot(v1, v2))
+    dot = max(-1.0, min(1.0, dot))
+    return _cosine_to_percent(dot)
+

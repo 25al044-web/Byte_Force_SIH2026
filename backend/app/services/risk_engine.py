@@ -258,11 +258,34 @@ def calculate_risk(checks: Any) -> Dict[str, Any]:
     else:
         explanations.append("Blacklist screening not available: +10 default risk.")
 
+    # 7. Trusted Identity Registry Cross-Verification (additive check)
+    tr_data = _extract_check(checks, "trusted_registry")
+    tr_status = None
+    if tr_data:
+        raw_tr_st = tr_data.get("status")
+        if hasattr(raw_tr_st, "value"):
+            raw_tr_st = raw_tr_st.value
+        tr_status = str(raw_tr_st).strip().upper() if raw_tr_st else "NOT_FOUND"
+
+        tr_mismatches = tr_data.get("mismatches") or []
+        tr_reason = tr_data.get("reason") or "conflict detected"
+
+        if tr_status == "MISMATCH":
+            has_high_sev = any(m.get("severity") == "HIGH" for m in tr_mismatches)
+            tr_contrib = 60 if has_high_sev else 40
+            contributions["trusted_registry"] = tr_contrib
+            explanations.append(f"Trusted identity registry conflict: {tr_reason} (+{tr_contrib} risk).")
+        elif tr_status == "MATCH":
+            contributions["trusted_registry"] = 0
+            explanations.append("Presented document matches trusted identity registry: no additional risk.")
+        else:
+            contributions["trusted_registry"] = 0
+
     # Compute base cumulative score
     raw_score = sum(contributions.values())
     final_score = raw_score
 
-    # 7. Critical Overrides
+    # 8. Critical Overrides
     # Override A: Blacklist FAIL -> minimum risk 85
     if bl_status == "FAIL":
         if final_score < 85:
@@ -287,6 +310,12 @@ def calculate_risk(checks: Any) -> Dict[str, Any]:
         if final_score < 75:
             final_score = 75
             override_notes.append("Machine-readable data mismatch (MRZ/QR vs visible document fields) triggered high-risk threshold (75).")
+
+    # Override E: Trusted Registry Mismatch -> minimum risk 75
+    if tr_data and tr_status == "MISMATCH":
+        if final_score < 75:
+            final_score = 75
+            override_notes.append("Trusted identity registry mismatch triggered high-risk threshold (75).")
 
     # Clamp score to 0..100
     final_score = max(0, min(100, final_score))

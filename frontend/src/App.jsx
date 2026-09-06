@@ -17,6 +17,7 @@ import { BlockchainAuditCard } from './components/BlockchainAuditCard'
 import { AuditTrailPage } from './components/AuditTrailPage'
 import { CaseReviewPage } from './components/CaseReviewPage'
 import { SystemStatusPage } from './components/SystemStatusPage'
+import { TrustedRegistryPage } from './components/TrustedRegistryPage'
 import { checkBackendHealth, getDemoStatus, resetDemoData, screenIdentity } from './services/api'
 import { useTranslation } from './i18n'
 
@@ -207,6 +208,11 @@ function App() {
                 <strong>{t('serviceUnavailable')}.</strong> {t('pleaseTryAgain')}
               </span>
             </div>
+          )}
+
+          {/* ── TRUSTED REGISTRY VIEW ── */}
+          {currentView === 'trusted_registry' && (
+            <TrustedRegistryPage backendOnline={backendOnline} />
           )}
 
           {/* ── CASE REVIEW VIEW ── */}

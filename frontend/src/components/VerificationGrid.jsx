@@ -2,6 +2,7 @@ import React from 'react'
 import { StatusPill } from './StatusPill'
 import { FaceCompareCard } from './FaceCompareCard'
 import { TamperCard } from './TamperCard'
+import { TrustedIdentityCard } from './TrustedIdentityCard'
 import { AlertPanel } from './AlertPanel'
 import { SectionHeader } from './SectionHeader'
 import { translateReason, useTranslation } from '../i18n'
@@ -90,7 +91,7 @@ export function VerificationGrid({ checks, documentPreview, selfiePreview }) {
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
           </svg>
         }
-        right={<span className="vg-count-badge">6 ACTIVE CHECKS</span>}
+        right={<span className="vg-count-badge">{checks?.trusted_registry ? '7 ACTIVE CHECKS' : '6 ACTIVE CHECKS'}</span>}
       />
 
       {/* Critical alerts */}
@@ -120,6 +121,11 @@ export function VerificationGrid({ checks, documentPreview, selfiePreview }) {
 
       {/* Layered Document Integrity & Digital Forensics — Full width card */}
       <TamperCard check={checks?.tamper} documentPreview={documentPreview} />
+
+      {/* Trusted Identity Registry Cross-Verification — Full width card */}
+      {checks?.trusted_registry && (
+        <TrustedIdentityCard check={checks.trusted_registry} />
+      )}
 
       {/* 2x2 remaining cards */}
       <div className="vg-cards-grid">

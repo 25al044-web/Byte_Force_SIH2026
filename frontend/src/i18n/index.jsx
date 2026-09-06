@@ -8,7 +8,7 @@ export const LANGUAGE_OPTIONS = [
 ]
 
 const en = {
-  language: 'Language', screening: 'Document Screening', dashboard: 'Dashboard', watchlist: 'Watchlist', caseReview: 'Case Review', auditTrail: 'Audit Trail', systemStatus: 'System Status',
+  language: 'Language', screening: 'Document Screening', dashboard: 'Dashboard', trustedRegistry: 'Trusted Registry', watchlist: 'Watchlist', caseReview: 'Case Review', auditTrail: 'Audit Trail', systemStatus: 'System Status',
   identityScreening: 'Identity Screening', systemsOperational: 'Systems Operational', serviceUnavailable: 'Service Unavailable', resetDemo: 'Reset Demo', resetting: 'Resetting…',
   identityDocument: 'Identity Document', applicantSelfie: 'Applicant Selfie', documentSubtitle: "Passport · National ID · Visa · Driver's License", selfieSubtitle: 'Live frontal portrait — clear, unobstructed',
   uploadIdentityDocument: 'Upload Identity Document', dragDrop: 'Drag and drop', clickToUpload: 'Click to upload', browseFile: 'Browse file', supportedFormats: 'JPEG, PNG · Up to 15 MB', startAnalysis: 'Start Analysis', startScreening: 'Start Identity Screening', processing: 'Processing Screening Pipeline…',

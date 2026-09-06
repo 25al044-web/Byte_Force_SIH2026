@@ -99,6 +99,21 @@ class BlacklistCheckResult(BaseModel):
     match: Optional[Dict[str, Any]] = None
 
 
+class TrustedRegistryCheckResult(BaseModel):
+    """Result of cross-verification against local demo trusted identity registry."""
+    model_config = ConfigDict(extra="ignore")
+
+    status: str = "NOT_FOUND"
+    record_found: bool = False
+    registry_id: Optional[str] = None
+    reason: str = "No trusted record found"
+    mismatches: Optional[List[Dict[str, Any]]] = None
+    stored_record: Optional[Dict[str, Any]] = None
+    comparisons: Optional[Dict[str, Any]] = None
+    tri_face_match: Optional[Dict[str, Any]] = None
+    risk_level: Optional[str] = None
+
+
 class ChecksContainer(BaseModel):
     """Aggregated checks container containing all pipeline check outcomes."""
     model_config = ConfigDict(extra="ignore")
@@ -109,6 +124,7 @@ class ChecksContainer(BaseModel):
     face_match: FaceMatchCheckResult
     duplicate_identity: DuplicateIdentityCheckResult
     blacklist: BlacklistCheckResult
+    trusted_registry: Optional[TrustedRegistryCheckResult] = None
 
 
 class RiskAssessment(BaseModel):
@@ -139,3 +155,4 @@ class ScreeningResponse(BaseModel):
     risk: RiskAssessment
     explanations: List[str]
     blockchain_audit: Optional[BlockchainAudit] = None
+    trusted_registry: Optional[TrustedRegistryCheckResult] = None
