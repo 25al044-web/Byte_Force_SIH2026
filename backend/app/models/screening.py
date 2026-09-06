@@ -56,12 +56,20 @@ class ExpiryCheckResult(BaseModel):
 
 
 class TamperCheckResult(BaseModel):
-    """Result of document tamper and forgery screening."""
+    """Result of document tamper, forgery, and integrity screening."""
     model_config = ConfigDict(extra="ignore")
 
     status: CheckStatus
     risk: Optional[Union[int, float]] = None
     reason: str
+    recommendation: Optional[str] = None
+    confidence: Optional[str] = None
+    document_quality: Optional[Dict[str, Any]] = None
+    sub_checks: Optional[Dict[str, Any]] = None
+    field_analysis: Optional[List[Dict[str, Any]]] = None
+    highlighted_regions: Optional[List[Dict[str, Any]]] = None
+    cross_field_consistency: Optional[Dict[str, Any]] = None
+    ai_manipulation: Optional[Dict[str, Any]] = None
 
 
 class FaceMatchCheckResult(BaseModel):

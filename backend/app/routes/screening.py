@@ -166,15 +166,25 @@ async def screen_identity(
             embedding=selfie_embedding,
         )
 
-    # 10. REAL Document Tamper Screening
+    # 10. REAL Layered Document Tamper & Integrity Screening
     tamper_res = detect_tampering(
         image_bytes=document_bytes,
         mime_type=mime_type,
+        extracted_data=doc_info,
+        mrz_lines=(mrz_1, mrz_2) if (mrz_1 and mrz_2) else None,
     )
     tamper_check = TamperCheckResult(
         status=CheckStatus(tamper_res["status"]),
         risk=tamper_res.get("risk"),
         reason=tamper_res["reason"],
+        recommendation=tamper_res.get("recommendation"),
+        confidence=tamper_res.get("confidence"),
+        document_quality=tamper_res.get("document_quality"),
+        sub_checks=tamper_res.get("sub_checks"),
+        field_analysis=tamper_res.get("field_analysis"),
+        highlighted_regions=tamper_res.get("highlighted_regions"),
+        cross_field_consistency=tamper_res.get("cross_field_consistency"),
+        ai_manipulation=tamper_res.get("ai_manipulation"),
     )
 
     # 11. Assemble checks container

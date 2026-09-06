@@ -25,6 +25,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from app.services.document_analysis.integrity_engine import run_document_integrity_pipeline
+
 logger = logging.getLogger(__name__)
 
 SUPPORTED_MIME_TYPES = ("image/jpeg", "image/png", "image/webp")
@@ -67,6 +69,13 @@ def _decode_and_sanitize_image(
             "mode": pil_img.mode,
             "info": dict(pil_img.info) if hasattr(pil_img, "info") else {},
         }
+        # Safely extract quantization tables if JPEG
+        if hasattr(pil_img, "quantization") and pil_img.quantization:
+            try:
+                metadata["quantization"] = pil_img.quantization
+            except Exception:
+                pass
+
         # Safely extract basic EXIF if available
         if hasattr(pil_img, "getexif"):
             try:
@@ -106,10 +115,30 @@ def _decode_and_sanitize_image(
 # ---------------------------------------------------------------------------
 
 def _check_sharpness(gray: np.ndarray) -> Dict[str, Any]:
-    """Inspect image blur and focus quality via Laplacian variance."""
+    """Inspect image blur, focus quality, and localized sharpness disparity."""
     laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    h, w = gray.shape[:2]
 
-    if laplacian_var < 25.0:
+    # Block-level sharpness variance
+    grid_rows, grid_cols = 8, 8
+    bh, bw = max(4, h // grid_rows), max(4, w // grid_cols)
+    local_vars = []
+    for r in range(grid_rows):
+        for c in range(grid_cols):
+            patch = gray[r * bh:min(h, (r + 1) * bh), c * bw:min(w, (c + 1) * bw)]
+            if patch.shape[0] > 5 and patch.shape[1] > 5:
+                local_vars.append(float(cv2.Laplacian(patch, cv2.CV_64F).var()))
+
+    max_local = float(max(local_vars)) if local_vars else 0.0
+    med_local = float(np.median(local_vars)) if local_vars else 1.0
+    sharp_ratio = max_local / (med_local + 5.0)
+
+    # Check for extreme localized sharpness disparity (pasted sharp elements on soft doc)
+    if max_local >= 400.0 and sharp_ratio >= 20.0 and med_local < 30.0:
+        score = 20
+        status = "WARNING"
+        reason = f"Extreme local sharpness disparity detected across document regions (peak {max_local:.0f} vs median {med_local:.1f})"
+    elif laplacian_var < 25.0:
         score = 15
         status = "WARNING"
         reason = f"Image is significantly blurred (sharpness {laplacian_var:.1f}), forensic confidence reduced"
@@ -402,11 +431,11 @@ def _check_duplicate_regions(gray: np.ndarray) -> Dict[str, Any]:
         _, counts = np.unique(bins, axis=0, return_counts=True)
         max_cluster = int(np.max(counts))
 
-    if max_cluster >= 4:
+    if max_cluster >= 6:
         score = 35
         status = "FAIL"
         reason = f"Potential copy-move duplicated region detected ({max_cluster} aligned feature pairs)"
-    elif max_cluster >= 2:
+    elif max_cluster >= 5:
         score = 15
         status = "WARNING"
         reason = f"Minor duplicate texture pattern detected ({max_cluster} matching feature pairs)"
@@ -511,20 +540,32 @@ def _check_metadata_signatures(metadata: Optional[Dict[str, Any]]) -> Dict[str, 
 def detect_tampering(
     image_bytes: bytes,
     mime_type: str,
+    extracted_data: Optional[Dict[str, Any]] = None,
+    mrz_lines: Optional[Tuple[Optional[str], Optional[str]]] = None,
 ) -> Dict[str, Any]:
-    """Screen identity document for visual tampering and digital alteration.
+    """Screen identity document for visual tampering, forgery, and data integrity.
 
     Args:
         image_bytes: Raw binary bytes of uploaded identity document.
         mime_type: MIME type string (e.g. 'image/jpeg', 'image/png').
+        extracted_data: Optional dictionary of OCR-extracted fields for cross-validation.
+        mrz_lines: Optional (mrz_line_1, mrz_line_2) tuple if MRZ was extracted.
 
     Returns:
-        Dict adhering to the pipeline check contract:
+        Dict adhering to the pipeline check contract with layered forensic insights:
         {
             "status": "PASS" | "WARNING" | "FAIL" | "NOT_AVAILABLE",
             "risk": int (0 to 100),
             "reason": str,
-            "checks": List[Dict[str, Any]] (internal indicator breakdown)
+            "recommendation": "CLEAR" | "MANUAL_REVIEW_RECOMMENDED" | "SECONDARY_INSPECTION_RECOMMENDED",
+            "confidence": "HIGH" | "MEDIUM" | "LOW",
+            "checks": List[Dict[str, Any]],
+            "sub_checks": Dict[str, Any],
+            "document_quality": Dict[str, Any],
+            "field_analysis": List[Dict[str, Any]],
+            "highlighted_regions": List[Dict[str, Any]],
+            "cross_field_consistency": Dict[str, Any],
+            "ai_manipulation": Dict[str, Any],
         }
     """
     bgr, metadata, err = _decode_and_sanitize_image(image_bytes, mime_type)
@@ -533,7 +574,15 @@ def detect_tampering(
             "status": "NOT_AVAILABLE",
             "risk": None,
             "reason": f"Tamper screening unavailable: {err or 'unreadable image'}",
+            "recommendation": "MANUAL_REVIEW_RECOMMENDED",
+            "confidence": "LOW",
             "checks": [],
+            "sub_checks": {},
+            "document_quality": {"status": "UNAVAILABLE", "score": 0, "confidence": "LOW"},
+            "field_analysis": [],
+            "highlighted_regions": [],
+            "cross_field_consistency": {"status": "NOT_AVAILABLE", "has_mismatch": False},
+            "ai_manipulation": {"indicator": "LOW", "score": 0},
         }
 
     try:
@@ -544,11 +593,19 @@ def detect_tampering(
             "status": "NOT_AVAILABLE",
             "risk": None,
             "reason": "Image color conversion failed",
+            "recommendation": "MANUAL_REVIEW_RECOMMENDED",
+            "confidence": "LOW",
             "checks": [],
+            "sub_checks": {},
+            "document_quality": {"status": "UNAVAILABLE", "score": 0, "confidence": "LOW"},
+            "field_analysis": [],
+            "highlighted_regions": [],
+            "cross_field_consistency": {"status": "NOT_AVAILABLE", "has_mismatch": False},
+            "ai_manipulation": {"indicator": "LOW", "score": 0},
         }
 
-    # Execute independent visual indicators
-    indicators: List[Dict[str, Any]] = [
+    # 1. Execute legacy independent visual indicators (preserves compatibility)
+    legacy_indicators: List[Dict[str, Any]] = [
         _check_sharpness(gray),
         _check_compression_inconsistency(bgr),
         _check_noise_inconsistency(gray),
@@ -558,41 +615,86 @@ def detect_tampering(
         _check_metadata_signatures(metadata),
     ]
 
-    # Calculate aggregate tamper risk score
-    total_score = sum(ind.get("score", 0) for ind in indicators)
-    clamped_risk = max(0, min(100, int(round(total_score))))
+    legacy_score = sum(ind.get("score", 0) for ind in legacy_indicators)
 
-    # Classify status
-    if clamped_risk >= 50:
+    # 2. Execute deep layered Document Integrity & Risk Engine
+    layered_res = run_document_integrity_pipeline(
+        bgr=bgr,
+        gray=gray,
+        metadata=metadata,
+        extracted_data=extracted_data,
+        mrz_lines=mrz_lines,
+    )
+
+    # 3. Fuse scores (deterministic cross-field mismatch takes highest priority)
+    fused_risk = max(legacy_score, layered_res["risk"])
+    if layered_res["cross_field_consistency"].get("has_mismatch"):
+        fused_risk = max(fused_risk, 78)
+
+    clamped_risk = max(0, min(100, int(round(fused_risk))))
+
+    # 4. Determine final classification
+    if clamped_risk >= 50 or layered_res["cross_field_consistency"].get("has_mismatch"):
         status = "FAIL"
+        recommendation = "SECONDARY_INSPECTION_RECOMMENDED"
     elif clamped_risk >= 20:
         status = "WARNING"
+        recommendation = "MANUAL_REVIEW_RECOMMENDED"
     else:
         status = "PASS"
+        recommendation = layered_res.get("recommendation", "CLEAR")
 
     # Formulate explainable summary reason
-    anomalies = [
-        ind["reason"]
-        for ind in indicators
-        if ind["status"] in ("WARNING", "FAIL") and ind.get("score", 0) > 0
-    ]
+    reasons = layered_res.get("reasons", [])
+    if not reasons:
+        legacy_anomalies = [
+            ind["reason"]
+            for ind in legacy_indicators
+            if ind["status"] in ("WARNING", "FAIL") and ind.get("score", 0) > 0
+        ]
+        reasons = legacy_anomalies
 
     if status == "FAIL":
-        if anomalies:
-            reason = "Multiple significant tamper indicators detected: " + "; ".join(anomalies[:2])
+        if reasons:
+            reason = "Multiple significant tamper indicators detected: " + "; ".join(reasons[:2])
         else:
             reason = "Elevated composite forensic tamper risk detected across document visual features"
     elif status == "WARNING":
-        if anomalies:
-            reason = "Minor document visual anomalies detected: " + "; ".join(anomalies[:2])
+        if reasons:
+            reason = "Document visual anomaly detected: " + "; ".join(reasons[:2])
         else:
             reason = "Moderate localized visual inconsistency detected, manual verification recommended"
     else:
-        reason = "No significant visual tamper indicators detected. Compression and texture appear consistent."
+        if layered_res["document_quality"]["status"] == "ACCEPTABLE":
+            reason = "No significant visual tamper indicators detected. Compression, typography, and texture appear consistent."
+        else:
+            reason = f"No clear tamper indicators detected. {layered_res['document_quality']['summary']}"
 
-    return {
+    def _sanitize(val: Any) -> Any:
+        if isinstance(val, dict):
+            return {k: _sanitize(v) for k, v in val.items()}
+        elif isinstance(val, (list, tuple)):
+            return [_sanitize(x) for x in val]
+        elif isinstance(val, (np.bool_, bool)):
+            return bool(val)
+        elif isinstance(val, (np.integer, int)):
+            return int(val)
+        elif isinstance(val, (np.floating, float)):
+            return float(val)
+        return val
+
+    return _sanitize({
         "status": status,
         "risk": clamped_risk,
         "reason": reason,
-        "checks": indicators,
-    }
+        "recommendation": recommendation,
+        "confidence": layered_res["confidence"],
+        "checks": legacy_indicators,
+        "sub_checks": layered_res["sub_checks"],
+        "document_quality": layered_res["document_quality"],
+        "field_analysis": layered_res["field_analysis"],
+        "highlighted_regions": layered_res["highlighted_regions"],
+        "cross_field_consistency": layered_res["cross_field_consistency"],
+        "ai_manipulation": layered_res["ai_manipulation"],
+        "reasons": reasons,
+    })

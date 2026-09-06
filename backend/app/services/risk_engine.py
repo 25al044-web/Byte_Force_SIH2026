@@ -281,6 +281,13 @@ def calculate_risk(checks: Any) -> Dict[str, Any]:
             final_score = 80
             override_notes.append("Concurrent face match failure and MRZ invalidity triggered critical risk threshold (80).")
 
+    # Override D: Machine-Readable Data Mismatch (MRZ/QR vs Visible) -> minimum risk 75
+    cross_field = tamper_data.get("cross_field_consistency") or {}
+    if cross_field.get("has_mismatch"):
+        if final_score < 75:
+            final_score = 75
+            override_notes.append("Machine-readable data mismatch (MRZ/QR vs visible document fields) triggered high-risk threshold (75).")
+
     # Clamp score to 0..100
     final_score = max(0, min(100, final_score))
 
