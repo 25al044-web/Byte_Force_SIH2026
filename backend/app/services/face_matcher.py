@@ -18,6 +18,7 @@ Return format:
 """
 
 import logging
+import time
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
@@ -266,6 +267,7 @@ def compare_faces(
             "reason": "Face comparison service unavailable",
         }
 
+    t_det_start = time.perf_counter()
     try:
         doc_faces = app.get(doc_bgr)
     except Exception as exc:
@@ -274,6 +276,7 @@ def compare_faces(
             "status": "NOT_AVAILABLE",
             "similarity": None,
             "reason": "Face detection failed on document image",
+            "_perf": {"face_detection": (time.perf_counter() - t_det_start) * 1000, "face_embedding": 0.0, "face_matching": 0.0},
         }
 
     try:
@@ -284,13 +287,18 @@ def compare_faces(
             "status": "NOT_AVAILABLE",
             "similarity": None,
             "reason": "Face detection failed on selfie image",
+            "_perf": {"face_detection": (time.perf_counter() - t_det_start) * 1000, "face_embedding": 0.0, "face_matching": 0.0},
         }
+    t_det_end = time.perf_counter()
+    face_det_ms = (t_det_end - t_det_start) * 1000
 
     # ── 3. Validate face counts and extract selfie embedding ───────────────────
+    t_emb_start = time.perf_counter()
     np = _import_numpy()
     selfie_embedding_list = None
 
     if not selfie_faces:
+        t_emb_end = time.perf_counter()
         return {
             "status": "NOT_AVAILABLE",
             "similarity": None,
@@ -298,6 +306,7 @@ def compare_faces(
             "_selfie_embedding": None,
             "_doc_embedding": None,
             "_selfie_checked": True,
+            "_perf": {"face_detection": face_det_ms, "face_embedding": (t_emb_end - t_emb_start) * 1000, "face_matching": 0.0},
         }
 
     # Extract primary selfie face embedding
@@ -315,6 +324,7 @@ def compare_faces(
             selfie_embedding_list = (selfie_emb / norm).astype(float).tolist()
 
     if not doc_faces:
+        t_emb_end = time.perf_counter()
         return {
             "status": "NOT_AVAILABLE",
             "similarity": None,
@@ -322,6 +332,7 @@ def compare_faces(
             "_selfie_embedding": selfie_embedding_list,
             "_doc_embedding": None,
             "_selfie_checked": True,
+            "_perf": {"face_detection": face_det_ms, "face_embedding": (t_emb_end - t_emb_start) * 1000, "face_matching": 0.0},
         }
 
     # ── 4. Select primary document face ──────────────────────────────────────
@@ -335,6 +346,9 @@ def compare_faces(
         else:
             doc_embedding_list = (doc_emb / doc_norm).astype(float).tolist()
 
+    t_emb_end = time.perf_counter()
+    face_emb_ms = (t_emb_end - t_emb_start) * 1000
+
     if doc_emb is None or selfie_emb is None:
         return {
             "status": "NOT_AVAILABLE",
@@ -343,12 +357,16 @@ def compare_faces(
             "_selfie_embedding": selfie_embedding_list,
             "_doc_embedding": doc_embedding_list,
             "_selfie_checked": True,
+            "_perf": {"face_detection": face_det_ms, "face_embedding": face_emb_ms, "face_matching": 0.0},
         }
 
     # ── 5. Compute similarity ────────────────────────────────────────────────
+    t_match_start = time.perf_counter()
     cosine = _cosine_similarity(doc_emb, selfie_emb)
     similarity = _cosine_to_percent(cosine)
     check_status = _status_from_similarity(similarity)
+    t_match_end = time.perf_counter()
+    face_match_ms = (t_match_end - t_match_start) * 1000
 
     # ── 6. Build human-readable reason ──────────────────────────────────────
     if check_status == "PASS":
@@ -370,6 +388,11 @@ def compare_faces(
         "_selfie_embedding": selfie_embedding_list,
         "_doc_embedding": doc_embedding_list,
         "_selfie_checked": True,
+        "_perf": {
+            "face_detection": face_det_ms,
+            "face_embedding": face_emb_ms,
+            "face_matching": face_match_ms,
+        },
     }
 
 

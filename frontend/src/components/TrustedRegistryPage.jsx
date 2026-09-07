@@ -3,9 +3,6 @@ import {
   deactivateTrustedIdentity,
   getTrustedIdentities,
   registerTrustedIdentity,
-  getRegistryAuthStatus,
-  unlockRegistry,
-  lockRegistry,
   updateTrustedIdentity,
 } from '../services/api'
 import { useTranslation } from '../i18n'
@@ -19,9 +16,6 @@ export function TrustedRegistryPage({ backendOnline }) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [actionNotice, setActionNotice] = useState(null)
-  const [unlocked, setUnlocked] = useState(false)
-  const [pin, setPin] = useState('')
-  const [lockMessage, setLockMessage] = useState(null)
   const [editing, setEditing] = useState(null)
 
   // Add Form State
@@ -50,29 +44,34 @@ export function TrustedRegistryPage({ backendOnline }) {
   }
 
   useEffect(() => {
-    getRegistryAuthStatus().then(s => { setUnlocked(Boolean(s.unlocked)); if (s.unlocked) fetchRecords() }).catch(() => {})
+    fetchRecords()
   }, [])
-
-  const handleUnlock = async (e) => {
-    e.preventDefault(); setLockMessage(null)
-    if (!/^\d{6}$/.test(pin)) { setLockMessage('Enter exactly six numeric digits.'); return }
-    try { await unlockRegistry(pin); setPin(''); setUnlocked(true); fetchRecords() } catch (err) { setLockMessage(err.message) }
-  }
-  const handleLock = async () => { await lockRegistry(); setUnlocked(false); setRecords([]); setShowAddModal(false); setEditing(null) }
-  const handleEditSave = async (e) => { e.preventDefault(); try { await updateTrustedIdentity(editing.registry_id, editing); setEditing(null); setActionNotice('Identity updated and audit event recorded.'); fetchRecords() } catch (err) { setError(err.message) } }
-
-  if (!unlocked) return (
-    <section className="page-container"><div className="empty-panel" style={{ maxWidth: 620, margin: '80px auto' }}>
-      <div className="empty-icon">🔒</div><span className="stage-pill">RESTRICTED ACCESS</span><h2 className="stage-title">Trusted Identity Registry</h2>
-      <p>This registry contains trusted identity records. Access is restricted to authorized officers.</p>
-      <form onSubmit={handleUnlock} className="tr-form" style={{ marginTop: 24 }}><input aria-label="Six digit officer PIN" className="form-input font-mono" type="password" inputMode="numeric" maxLength="6" autoComplete="one-time-code" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} placeholder="••••••" />
-        {lockMessage && <p className="toast-offline">{lockMessage}</p>}<button className="btn-submit" type="submit">Unlock Registry</button></form>
-    </div></section>
-  )
 
   const handleSearchSubmit = (e) => {
     e.preventDefault()
     fetchRecords()
+  }
+
+  const handleEditSave = async (e) => {
+    e.preventDefault()
+    try {
+      await updateTrustedIdentity(editing.registry_id, editing)
+      setEditing(null)
+      setActionNotice('Identity updated.')
+      fetchRecords()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleExportJson = () => {
+    const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `trusted-identities-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const handlePhotoSelect = (e) => {
@@ -155,7 +154,22 @@ export function TrustedRegistryPage({ backendOnline }) {
         </div>
 
         <div className="page-header-actions">
-          <button type="button" className="btn-deactivate" onClick={handleLock}>🔓 Lock Registry</button>
+          <button
+            type="button"
+            className="btn-search-clear"
+            onClick={fetchRecords}
+            title="Refresh registry records"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="btn-search-clear"
+            onClick={handleExportJson}
+            title="Export registry to JSON"
+          >
+            Export JSON
+          </button>
           <button
             type="button"
             className="btn-primary-action"

@@ -18,7 +18,6 @@ from app.services.trusted_registry import (
     register_trusted_identity,
     update_trusted_identity,
 )
-from app.services.registry_auth import lock, require_session, session_status, unlock
 
 logger = logging.getLogger(__name__)
 
@@ -65,21 +64,6 @@ class CreateTrustedIdentityJsonRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=500)
     registry_id: Optional[str] = Field(None, max_length=50)
 
-class UnlockRequest(BaseModel):
-    pin: str
-
-@router.post("/registry/auth/unlock")
-def unlock_registry(body: UnlockRequest, request: Request):
-    return unlock(body.pin, request)
-
-@router.post("/registry/auth/lock")
-def lock_registry(request: Request):
-    lock(request.headers.get("X-Registry-Session", "")); return {"unlocked": False}
-
-@router.get("/registry/auth/status")
-def registry_status(request: Request):
-    return session_status(request)
-
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -88,14 +72,12 @@ def registry_status(request: Request):
 @router.get("/registry", response_model=TrustedIdentityListResponse)
 @router.get("/trusted-identities", response_model=TrustedIdentityListResponse)
 def get_trusted_identities(
-    request: Request,
     search: Optional[str] = Query(None, description="Search by name, document number, or registry ID"),
     active_only: bool = Query(False, description="Filter only active records"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """List trusted identity records in the local demonstration registry."""
-    require_session(request)
     records = list_trusted_identities(
         search=search,
         active_only=active_only,
@@ -116,7 +98,6 @@ async def create_trusted_identity(request: Request):
 
     Supports both JSON payload and multipart/form-data with photo upload.
     """
-    require_session(request)
     content_type = request.headers.get("content-type", "")
 
     full_name = ""
@@ -194,9 +175,9 @@ async def create_trusted_identity(request: Request):
 
 @router.get("/registry/lookup/{document_number}")
 @router.get("/trusted-identities/lookup/{document_number}")
-def lookup_identity_by_doc(document_number: str, request: Request):
+def lookup_identity_by_doc(document_number: str):
     """Lookup an active record by document number."""
-    require_session(request); rec = lookup_trusted_identity(document_number)
+    rec = lookup_trusted_identity(document_number)
     if not rec:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -213,9 +194,9 @@ def lookup_identity_by_doc(document_number: str, request: Request):
 
 @router.get("/registry/{registry_id}")
 @router.get("/trusted-identities/{registry_id}")
-def get_single_trusted_identity(registry_id: str, request: Request):
+def get_single_trusted_identity(registry_id: str):
     """Retrieve details for a single trusted identity."""
-    require_session(request); rec = get_trusted_identity(registry_id)
+    rec = get_trusted_identity(registry_id)
     if not rec:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -231,7 +212,7 @@ def get_single_trusted_identity(registry_id: str, request: Request):
 @router.put("/trusted-identities/{registry_id}")
 async def update_identity(registry_id: str, request: Request):
     """Update fields or photo of an existing trusted identity."""
-    require_session(request); existing = get_trusted_identity(registry_id)
+    existing = get_trusted_identity(registry_id)
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -277,9 +258,9 @@ async def update_identity(registry_id: str, request: Request):
 @router.patch("/registry/{registry_id}/deactivate")
 @router.post("/trusted-identities/{registry_id}/deactivate")
 @router.patch("/trusted-identities/{registry_id}/deactivate")
-def deactivate_identity(registry_id: str, request: Request):
+def deactivate_identity(registry_id: str):
     """Soft-deactivate a trusted identity."""
-    require_session(request); success = deactivate_trusted_identity(registry_id)
+    success = deactivate_trusted_identity(registry_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

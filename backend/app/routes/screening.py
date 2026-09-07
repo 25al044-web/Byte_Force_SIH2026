@@ -12,7 +12,10 @@ Executes the end-to-end identity screening pipeline:
 9. Real explainable rule-based risk-scoring engine.
 """
 
+import asyncio
+import logging
 import os
+import time
 import uuid
 from typing import Optional
 from fastapi import APIRouter, File, Query, UploadFile, status
@@ -44,7 +47,6 @@ from app.services.mrz_validator import validate_td3_mrz
 from app.services.risk_engine import calculate_risk
 from app.services.tamper_detector import detect_tampering, _decode_and_sanitize_image
 from app.services.trusted_registry import cross_verify_identity
-import logging
 from app.services.blockchain.audit_service import create_audit
 from app.services.blockchain.audit_service import record_event
 from app.services.case_service import save_case
@@ -52,6 +54,20 @@ from app.services.case_service import save_case
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _prepare_image_and_face(doc_bytes: bytes, doc_mime: str, slf_bytes: bytes, slf_mime: str):
+    """Pre-decode document image and run biometric face match concurrently."""
+    doc_bgr, doc_metadata, _ = _decode_and_sanitize_image(doc_bytes, doc_mime)
+    doc_gray = cv2.cvtColor(doc_bgr, cv2.COLOR_BGR2GRAY) if doc_bgr is not None else None
+    face_res = compare_faces(
+        document_image_bytes=doc_bytes,
+        document_mime_type=doc_mime,
+        selfie_image_bytes=slf_bytes,
+        selfie_mime_type=slf_mime,
+        precomputed_doc_bgr=doc_bgr,
+    )
+    return doc_bgr, doc_metadata, doc_gray, face_res
 
 
 @router.post(
@@ -75,6 +91,8 @@ async def screen_identity(
     ),
 ) -> ScreeningResponse:
     """Execute identity and document screening pipeline."""
+    t_screen_start = time.perf_counter()
+
     # 1. Ingest document image bytes for extraction
     document_bytes = await document_image.read()
     mime_type = document_image.content_type or "image/jpeg"
@@ -83,8 +101,17 @@ async def screen_identity(
     selfie_bytes = await selfie_image.read()
     selfie_mime_type = selfie_image.content_type or "image/jpeg"
 
-    # 2. REAL Structured Document Extraction using Google Gemini API
-    extraction_result = extract_document(image_bytes=document_bytes, mime_type=mime_type)
+    # 2. Concurrently execute Gemini document extraction and face analysis / pre-decoding
+    t_doc_start = time.perf_counter()
+    extraction_task = asyncio.to_thread(extract_document, image_bytes=document_bytes, mime_type=mime_type)
+    face_task = asyncio.to_thread(_prepare_image_and_face, document_bytes, mime_type, selfie_bytes, selfie_mime_type)
+
+    extraction_result, (doc_bgr, doc_metadata, doc_gray, face_res) = await asyncio.gather(
+        extraction_task, face_task
+    )
+    t_doc_end = time.perf_counter()
+    doc_proc_ms = (t_doc_end - t_doc_start) * 1000
+
     doc_info = extraction_result.get("document", {})
 
     extracted_doc_number = doc_info.get("document_number")
@@ -125,6 +152,15 @@ async def screen_identity(
         reason=expiry_res["reason"],
     )
 
+    # Biometric Face Match Result (from concurrent task)
+    face_check = FaceMatchCheckResult(
+        status=CheckStatus(face_res["status"]),
+        similarity=face_res.get("similarity"),
+        reason=face_res["reason"],
+    )
+
+    t_db_start = time.perf_counter()
+
     # 5. REAL SQLite Blacklist Screening
     blacklist_res = check_blacklist(
         document_number=active_doc_number,
@@ -136,24 +172,6 @@ async def screen_identity(
         status=CheckStatus(blacklist_res["status"]),
         reason=blacklist_res["reason"],
         match=blacklist_res.get("match"),
-    )
-
-    # Decode document image once to share across face comparison and forensic tamper analysis
-    doc_bgr, doc_metadata, _ = _decode_and_sanitize_image(document_bytes, mime_type)
-    doc_gray = cv2.cvtColor(doc_bgr, cv2.COLOR_BGR2GRAY) if doc_bgr is not None else None
-
-    # 6. REAL Biometric Face Comparison (reuses pre-decoded document array)
-    face_res = compare_faces(
-        document_image_bytes=document_bytes,
-        document_mime_type=mime_type,
-        selfie_image_bytes=selfie_bytes,
-        selfie_mime_type=selfie_mime_type,
-        precomputed_doc_bgr=doc_bgr,
-    )
-    face_check = FaceMatchCheckResult(
-        status=CheckStatus(face_res["status"]),
-        similarity=face_res.get("similarity"),
-        reason=face_res["reason"],
     )
 
     # 7. Extract selfie embedding for duplicate identity check (reuse if already checked)
@@ -233,6 +251,8 @@ async def screen_identity(
         tri_face_match=trusted_registry_res.get("tri_face_match"),
         risk_level=trusted_registry_res.get("risk_level"),
     )
+    t_db_end = time.perf_counter()
+    db_checks_ms = (t_db_end - t_db_start) * 1000
 
     # 11. Assemble checks container
     checks = ChecksContainer(
@@ -300,6 +320,27 @@ async def screen_identity(
         )
     except Exception as save_err:
         logger.warning("Failed to persist screening case: %s", save_err)
+
+    t_screen_end = time.perf_counter()
+    total_screening_ms = (t_screen_end - t_screen_start) * 1000
+
+    perf_metrics = face_res.get("_perf", {})
+    face_det_ms = perf_metrics.get("face_detection", 0.0)
+    face_emb_ms = perf_metrics.get("face_embedding", 0.0)
+    face_match_ms = perf_metrics.get("face_matching", 0.0)
+
+    logger.info("[PERF] document_processing: %.2f ms", doc_proc_ms)
+    logger.info("[PERF] face_detection: %.2f ms", face_det_ms)
+    logger.info("[PERF] face_embedding: %.2f ms", face_emb_ms)
+    logger.info("[PERF] face_matching: %.2f ms", face_match_ms)
+    logger.info("[PERF] database_checks: %.2f ms", db_checks_ms)
+    logger.info("[PERF] total_screening: %.2f ms", total_screening_ms)
+    print(f"[PERF] document_processing: {doc_proc_ms:.2f} ms")
+    print(f"[PERF] face_detection: {face_det_ms:.2f} ms")
+    print(f"[PERF] face_embedding: {face_emb_ms:.2f} ms")
+    print(f"[PERF] face_matching: {face_match_ms:.2f} ms")
+    print(f"[PERF] database_checks: {db_checks_ms:.2f} ms")
+    print(f"[PERF] total_screening: {total_screening_ms:.2f} ms")
 
     # 15. Return formal ScreeningResponse
     return ScreeningResponse(

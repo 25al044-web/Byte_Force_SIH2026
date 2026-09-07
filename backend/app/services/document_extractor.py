@@ -257,6 +257,18 @@ def _build_empty_response(warnings: List[str]) -> Dict[str, Any]:
     }
 
 
+_cached_genai_client = None
+_cached_genai_key = None
+
+
+def _get_genai_client(api_key: str):
+    global _cached_genai_client, _cached_genai_key
+    if _cached_genai_client is None or _cached_genai_key != api_key:
+        _cached_genai_client = genai.Client(api_key=api_key)
+        _cached_genai_key = api_key
+    return _cached_genai_client
+
+
 def extract_document(
     image_bytes: bytes,
     mime_type: str = "image/jpeg",
@@ -283,11 +295,11 @@ def extract_document(
     if not api_key and client is None:
         return _build_empty_response(["GEMINI_API_KEY environment variable is not configured"])
 
-    # 3. Initialize GenAI Client if not injected
+    # 3. Initialize GenAI Client if not injected (uses cached singleton)
     ai_client = client
     if ai_client is None:
         try:
-            ai_client = genai.Client(api_key=api_key)
+            ai_client = _get_genai_client(api_key)
         except Exception as exc:
             return _build_empty_response([f"Failed to initialize Gemini client: {str(exc)}"])
 

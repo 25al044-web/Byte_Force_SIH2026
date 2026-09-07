@@ -4,19 +4,6 @@
  */
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
-let registrySession = sessionStorage.getItem('registrySession') || ''
-const registryHeaders = () => registrySession ? { 'X-Registry-Session': registrySession } : {}
-
-export async function getRegistryAuthStatus() {
-  const res = await fetch(`${API_BASE_URL}/api/registry/auth/status`, { headers: registryHeaders() })
-  return res.json()
-}
-export async function unlockRegistry(pin) {
-  const res = await fetch(`${API_BASE_URL}/api/registry/auth/unlock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) })
-  const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.detail || 'Invalid officer PIN')
-  registrySession = data.token; sessionStorage.setItem('registrySession', registrySession); return data
-}
-export async function lockRegistry() { await fetch(`${API_BASE_URL}/api/registry/auth/lock`, { method: 'POST', headers: registryHeaders() }); registrySession = ''; sessionStorage.removeItem('registrySession') }
 
 /**
  * Sends travel/identity document and selfie image files to the screening endpoint.
@@ -222,7 +209,7 @@ export async function getTrustedIdentities({ search, activeOnly = false, limit =
   params.set('offset', String(offset))
   if (search) params.set('search', search)
 
-  const res = await fetch(`${API_BASE_URL}/api/trusted-identities?${params.toString()}`, { headers: registryHeaders() })
+  const res = await fetch(`${API_BASE_URL}/api/trusted-identities?${params.toString()}`)
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     throw new Error(data.detail || 'Failed to fetch trusted identities.')
@@ -239,10 +226,9 @@ export async function registerTrustedIdentity(payload) {
   const options = {
     method: 'POST',
     body: isFormData ? payload : JSON.stringify(payload),
-    headers: registryHeaders(),
   }
   if (!isFormData) {
-    options.headers = { ...options.headers, 'Content-Type': 'application/json' }
+    options.headers = { 'Content-Type': 'application/json' }
   }
 
   const res = await fetch(`${API_BASE_URL}/api/trusted-identities`, options)
@@ -274,7 +260,7 @@ export async function lookupTrustedIdentity(documentNumber) {
  */
 export async function deactivateTrustedIdentity(registryId) {
   const res = await fetch(`${API_BASE_URL}/api/trusted-identities/${encodeURIComponent(registryId)}/deactivate`, {
-    method: 'POST', headers: registryHeaders(),
+    method: 'POST',
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -285,7 +271,12 @@ export async function deactivateTrustedIdentity(registryId) {
 
 export async function updateTrustedIdentity(registryId, payload) {
   const isFormData = payload instanceof FormData
-  const res = await fetch(`${API_BASE_URL}/api/trusted-identities/${encodeURIComponent(registryId)}`, { method: 'PUT', headers: isFormData ? registryHeaders() : { ...registryHeaders(), 'Content-Type': 'application/json' }, body: isFormData ? payload : JSON.stringify(payload) })
-  const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.detail || 'Update failed.')
+  const res = await fetch(`${API_BASE_URL}/api/trusted-identities/${encodeURIComponent(registryId)}`, {
+    method: 'PUT',
+    headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+    body: isFormData ? payload : JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail || 'Update failed.')
   return data
 }
