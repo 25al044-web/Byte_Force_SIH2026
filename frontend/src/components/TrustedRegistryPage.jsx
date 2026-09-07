@@ -3,6 +3,10 @@ import {
   deactivateTrustedIdentity,
   getTrustedIdentities,
   registerTrustedIdentity,
+  getRegistryAuthStatus,
+  unlockRegistry,
+  lockRegistry,
+  updateTrustedIdentity,
 } from '../services/api'
 import { useTranslation } from '../i18n'
 
@@ -15,6 +19,10 @@ export function TrustedRegistryPage({ backendOnline }) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [actionNotice, setActionNotice] = useState(null)
+  const [unlocked, setUnlocked] = useState(false)
+  const [pin, setPin] = useState('')
+  const [lockMessage, setLockMessage] = useState(null)
+  const [editing, setEditing] = useState(null)
 
   // Add Form State
   const [formData, setFormData] = useState({
@@ -42,8 +50,25 @@ export function TrustedRegistryPage({ backendOnline }) {
   }
 
   useEffect(() => {
-    fetchRecords()
+    getRegistryAuthStatus().then(s => { setUnlocked(Boolean(s.unlocked)); if (s.unlocked) fetchRecords() }).catch(() => {})
   }, [])
+
+  const handleUnlock = async (e) => {
+    e.preventDefault(); setLockMessage(null)
+    if (!/^\d{6}$/.test(pin)) { setLockMessage('Enter exactly six numeric digits.'); return }
+    try { await unlockRegistry(pin); setPin(''); setUnlocked(true); fetchRecords() } catch (err) { setLockMessage(err.message) }
+  }
+  const handleLock = async () => { await lockRegistry(); setUnlocked(false); setRecords([]); setShowAddModal(false); setEditing(null) }
+  const handleEditSave = async (e) => { e.preventDefault(); try { await updateTrustedIdentity(editing.registry_id, editing); setEditing(null); setActionNotice('Identity updated and audit event recorded.'); fetchRecords() } catch (err) { setError(err.message) } }
+
+  if (!unlocked) return (
+    <section className="page-container"><div className="empty-panel" style={{ maxWidth: 620, margin: '80px auto' }}>
+      <div className="empty-icon">🔒</div><span className="stage-pill">RESTRICTED ACCESS</span><h2 className="stage-title">Trusted Identity Registry</h2>
+      <p>This registry contains trusted identity records. Access is restricted to authorized officers.</p>
+      <form onSubmit={handleUnlock} className="tr-form" style={{ marginTop: 24 }}><input aria-label="Six digit officer PIN" className="form-input font-mono" type="password" inputMode="numeric" maxLength="6" autoComplete="one-time-code" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} placeholder="••••••" />
+        {lockMessage && <p className="toast-offline">{lockMessage}</p>}<button className="btn-submit" type="submit">Unlock Registry</button></form>
+    </div></section>
+  )
 
   const handleSearchSubmit = (e) => {
     e.preventDefault()
@@ -130,6 +155,7 @@ export function TrustedRegistryPage({ backendOnline }) {
         </div>
 
         <div className="page-header-actions">
+          <button type="button" className="btn-deactivate" onClick={handleLock}>🔓 Lock Registry</button>
           <button
             type="button"
             className="btn-primary-action"
@@ -388,6 +414,9 @@ export function TrustedRegistryPage({ backendOnline }) {
                   </td>
                   <td>
                     {rec.is_active && (
+                      <button type="button" className="btn-search-submit" onClick={() => setEditing({ ...rec })}>Edit</button>
+                    )}
+                    {rec.is_active && (
                       <button
                         type="button"
                         className="btn-deactivate"
@@ -404,6 +433,7 @@ export function TrustedRegistryPage({ backendOnline }) {
           </table>
         </div>
       )}
+      {editing && <div className="modal-backdrop"><div className="modal-panel tr-modal"><div className="modal-header"><h3 className="modal-title">Edit Identity</h3><button className="btn-modal-close" onClick={() => setEditing(null)}>×</button></div><form onSubmit={handleEditSave} className="tr-form"><div className="form-grid">{['full_name','document_number','document_type','date_of_birth','nationality','notes'].map(field => <div className="form-group" key={field}><label className="form-label">{field.replaceAll('_',' ')}</label><input required={['full_name','document_number','document_type','date_of_birth'].includes(field)} className="form-input" value={editing[field] || ''} onChange={e => setEditing({ ...editing, [field]: e.target.value })} /></div>)}</div><div className="modal-footer"><button className="btn-cancel" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="btn-submit" type="submit">Save Changes</button></div></form></div></div>}
     </section>
   )
 }

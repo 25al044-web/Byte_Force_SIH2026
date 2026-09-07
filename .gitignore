@@ -34,6 +34,10 @@ venv.bak/
 
 # Node / Vite / React
 frontend/node_modules/
+blockchain/node_modules/
+blockchain/artifacts/
+blockchain/cache/
+blockchain/deployments/
 frontend/dist/
 frontend/dist-ssr/
 frontend/.env.local

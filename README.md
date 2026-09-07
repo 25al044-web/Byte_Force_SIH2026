@@ -51,6 +51,45 @@ An intelligent screening system designed to detect counterfeit identity document
 
 ## Setup & Running Backend
 
+## Local blockchain audit (optional but fully verifiable)
+
+Use four terminals from the repository root:
+
+```bash
+# Terminal 1
+cd blockchain
+npm install
+npm run blockchain:node
+
+# Terminal 2 (after node is ready)
+cd blockchain
+npm run blockchain:deploy
+
+# Terminal 3
+cd backend
+pip install -r requirements.txt
+# Create .env from .env.example and set REGISTRY_OFFICER_PIN to a real six-digit value.
+# Set BLOCKCHAIN_PRIVATE_KEY to one of the development keys printed by Hardhat.
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+
+# Terminal 4
+cd frontend
+npm install
+npm run dev
+```
+
+Deployment writes `blockchain/deployments/localhost.json`; the backend reads this
+artifact automatically. `/api/blockchain/status` reports connected only after it
+can reach RPC, find contract bytecode, and execute a contract read. If Hardhat is
+offline, screening continues and the local audit row is marked `FAILED` rather
+than claiming an on-chain transaction.
+
+The Trusted Identity Registry requires `REGISTRY_OFFICER_PIN` (exactly six
+digits). The PIN is validated only by the backend with bcrypt and unlocks a
+15-minute, inactivity-refreshed session. Registry writes produce a canonical
+SHA-256 metadata hash, which is stored locally and anchored in AuditTrail when
+the chain is available. Verify screening records with `POST /api/audit/{id}/verify`.
+
 ### 1. Create and Activate Virtual Environment
 From the project root:
 ```bash

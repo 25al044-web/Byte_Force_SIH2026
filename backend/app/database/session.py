@@ -250,6 +250,20 @@ def init_db(db_path: Optional[str] = None) -> None:
             );
             """
         )
+        # Searchable local metadata; the corresponding hash is optionally anchored on Ethereum.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+                action TEXT NOT NULL, data_json TEXT NOT NULL, data_hash TEXT NOT NULL,
+                previous_hash TEXT, transaction_hash TEXT, block_number INTEGER,
+                blockchain_audit_id INTEGER, blockchain_status TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')), verified_at TEXT
+            )
+            """
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_events(entity_type, entity_id)")
 
         # Stores screening case summaries for officer review
         cursor.execute(

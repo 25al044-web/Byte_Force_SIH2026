@@ -1,0 +1,3 @@
+const fs = require('fs'); const path = require('path');
+async function main() { const F = await ethers.getContractFactory('AuditTrail'); const c = await F.deploy(); await c.waitForDeployment(); const d = { address: await c.getAddress(), chainId: Number((await ethers.provider.getNetwork()).chainId), deployedAt: new Date().toISOString() }; const dir = path.join(__dirname, '..', 'deployments'); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'localhost.json'), JSON.stringify(d, null, 2)); console.log(`AuditTrail deployed: ${d.address}`); }
+main().catch(e => { console.error(e); process.exitCode = 1; });

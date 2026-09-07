@@ -93,11 +93,11 @@ export function SystemStatusPage({ backendOnline }) {
       id: 'face_verification',
       title: 'Face Verification',
       category: 'Biometric AI Engine',
-      status: statusData?.face_verification || 'AVAILABLE',
+      status: statusData?.face_verification || 'UNAVAILABLE',
       activeText: 'Available',
       inactiveText: 'Unavailable',
-      detail: 'InsightFace (RetinaFace Detection + ArcFace 512-D ONNX Embeddings)',
-      endpoint: 'Local CPU Execution Provider',
+      detail: statusData?.face_verification_details?.ready ? `${statusData.face_verification_details.engine} (${statusData.face_verification_details.detector} + ${statusData.face_verification_details.embedding})` : 'InsightFace engine initialization unavailable',
+      endpoint: statusData?.face_verification_details?.provider || 'Local CPU Execution Provider',
       icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10" />
@@ -114,8 +114,8 @@ export function SystemStatusPage({ backendOnline }) {
       status: statusData?.blockchain || 'UNAVAILABLE',
       activeText: 'Connected',
       inactiveText: 'Unavailable',
-      detail: 'Ethereum / Hardhat Node · Smart Contract Tamper Proofing (Port 8545)',
-      endpoint: 'Local RPC Provider (Optional)',
+      detail: statusData?.blockchain_details?.ready ? `Ethereum / Hardhat · Chain ${statusData.blockchain_details.chain_id} · Block ${statusData.blockchain_details.latest_block}` : 'Ethereum / Hardhat node or AuditTrail contract unavailable',
+      endpoint: statusData?.blockchain_details?.contract_address || 'Local RPC Provider (Optional)',
       icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />

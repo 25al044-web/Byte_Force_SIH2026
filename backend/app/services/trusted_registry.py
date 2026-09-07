@@ -24,6 +24,8 @@ from app.services.face_matcher import (
     compute_embedding_similarity,
     extract_face_embedding,
 )
+from app.services.blockchain.audit_service import record_event
+from app.services.blockchain.hash_service import hash_report
 
 logger = logging.getLogger("sentinel.trusted_registry")
 
@@ -201,6 +203,8 @@ def register_trusted_identity(
             ),
         )
         conn.commit()
+
+        record_event("IDENTITY_ADDED", "TRUSTED_IDENTITY", reg_id, "IDENTITY_ADDED", {"identity_id": reg_id, "state_hash": hash_report({"registry_id": reg_id, "active": True}), "changed_fields": ["created"]})
 
         return {
             "registry_id": reg_id,
@@ -395,6 +399,7 @@ def update_trusted_identity(
         existing = cursor.fetchone()
         if not existing:
             return None
+        old_hash = hash_report({"registry_id": registry_id, "full_name": existing["full_name"], "document_number": existing["document_number"], "document_type": existing["document_type"], "date_of_birth": existing["date_of_birth"], "nationality": existing["nationality"], "notes": existing["notes"], "is_active": bool(existing["is_active"])})
 
         fields_to_update: List[str] = []
         params: List[Any] = []
@@ -455,7 +460,10 @@ def update_trusted_identity(
             params,
         )
         conn.commit()
-        return get_trusted_identity(registry_id, db_conn=conn)
+        updated = get_trusted_identity(registry_id, db_conn=conn)
+        new_hash = hash_report({k: updated.get(k) for k in ("registry_id", "full_name", "document_number", "document_type", "date_of_birth", "nationality", "notes", "is_active")})
+        record_event("IDENTITY_UPDATED", "TRUSTED_IDENTITY", registry_id, "IDENTITY_UPDATED", {"identity_id": registry_id, "old_state_hash": old_hash, "new_state_hash": new_hash, "changed_fields": sorted(k for k in updates if k in {"full_name","document_number","document_type","date_of_birth","nationality","notes","is_active"}) + (["reference_photo"] if photo_bytes else [])}, old_hash)
+        return updated
     finally:
         if should_close:
             conn.close()
@@ -470,6 +478,7 @@ def deactivate_trusted_identity(
     should_close = db_conn is None
     try:
         cursor = conn.cursor()
+        row = cursor.execute("SELECT registry_id, is_active FROM trusted_identities WHERE registry_id = ?", (registry_id,)).fetchone()
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
             """
@@ -480,7 +489,11 @@ def deactivate_trusted_identity(
             (now, registry_id),
         )
         conn.commit()
-        return cursor.rowcount > 0
+        success = cursor.rowcount > 0
+        if success:
+            old_hash = hash_report({"registry_id": registry_id, "active": bool(row["is_active"])})
+            record_event("IDENTITY_DEACTIVATED", "TRUSTED_IDENTITY", registry_id, "IDENTITY_DEACTIVATED", {"identity_id": registry_id, "active": False}, old_hash)
+        return success
     finally:
         if should_close:
             conn.close()

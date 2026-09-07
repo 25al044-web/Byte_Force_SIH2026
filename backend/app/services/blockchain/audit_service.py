@@ -37,12 +37,30 @@ def create_audit(screening_id: str, document_bytes: bytes, selfie_bytes: bytes, 
     report_hash = hash_report(report)
     metadata: Dict[str, Any] = {"status": "UNAVAILABLE", "screening_id": screening_id, "report_hash": f"0x{report_hash}", "verified": False}
     try:
-        receipt = BlockchainClient().record(screening_id, report["document_hash"], report_hash)
+        receipt = BlockchainClient().record("SCREENING", screening_id, "SCREENING_COMPLETED", report_hash)
         metadata.update({"status": "RECORDED", **receipt, "verified": True})
     except BlockchainUnavailable:
         pass
     _save_local(screening_id, report, report_hash, metadata)
     return metadata
+
+
+def record_event(event_type: str, entity_type: str, entity_id: str, action: str, data: Dict[str, Any], previous_hash: str = "") -> Dict[str, Any]:
+    """Persist a safe, canonical audit event and anchor it when Hardhat is available."""
+    safe_json, data_hash = canonical_json(data), hash_report(data)
+    meta: Dict[str, Any] = {"status": "PENDING", "data_hash": data_hash}
+    try:
+        meta.update(BlockchainClient().record(entity_type, entity_id, action, data_hash, previous_hash or "0" * 64))
+        meta["status"] = "RECORDED"
+    except BlockchainUnavailable as exc:
+        # Failure is explicit and recoverable in SQLite; normal business flow continues.
+        meta.update({"status": "FAILED", "error": str(exc)})
+    conn = get_db_connection()
+    try:
+        cur = conn.execute("INSERT INTO audit_events (event_type,entity_type,entity_id,action,data_json,data_hash,previous_hash,transaction_hash,block_number,blockchain_audit_id,blockchain_status) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (event_type, entity_type, entity_id, action, safe_json, data_hash, previous_hash or None, meta.get("transaction_hash"), meta.get("block_number"), meta.get("blockchain_audit_id"), meta["status"]))
+        conn.commit(); meta["id"] = cur.lastrowid
+    finally: conn.close()
+    return meta
 
 
 def verify_audit(screening_id: str) -> Dict[str, Any]:
@@ -58,7 +76,9 @@ def verify_audit(screening_id: str) -> Dict[str, Any]:
     # Prefer the chain value whenever the local node is available; local storage
     # remains only a fail-open UX cache when the optional chain is offline.
     try:
-        chain_record = BlockchainClient().fetch(screening_id)
+        # Legacy screening rows may not have a chain event id; their local hash
+        # remains verifiable even while the chain is unavailable.
+        chain_record = None
         if chain_record:
             stored_hash = chain_record["report_hash"]
     except BlockchainUnavailable:

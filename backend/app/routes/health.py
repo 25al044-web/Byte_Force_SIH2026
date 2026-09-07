@@ -25,21 +25,18 @@ def get_system_status() -> Dict[str, Any]:
     # 3. AI Document Extraction (Gemini Multimodal)
     ai_status = "AVAILABLE" if bool(os.getenv("GEMINI_API_KEY")) else "UNAVAILABLE"
 
-    # 4. Biometric Face Verification (InsightFace ONNX)
-    try:
-        from app.services.face_matcher import _get_face_analysis_app
-        app_instance = _get_face_analysis_app()
-        face_status = "AVAILABLE" if app_instance is not None else "UNAVAILABLE"
-    except Exception:
-        face_status = "UNAVAILABLE"
+    # 4. Biometric Face Verification is a local ONNX model, not a network service.
+    from app.services.face_matcher import is_face_engine_ready
+    face = is_face_engine_ready()
+    face_status = "AVAILABLE" if face["ready"] else "UNAVAILABLE"
 
     # 5. Blockchain Audit Layer (Local Ethereum/Hardhat)
     try:
         from app.services.blockchain.blockchain_client import BlockchainClient
-        BlockchainClient()._contract()
-        blockchain_status = "CONNECTED"
-    except Exception:
-        blockchain_status = "UNAVAILABLE"
+        blockchain = BlockchainClient().health()
+        blockchain_status = "CONNECTED" if blockchain["ready"] else "UNAVAILABLE"
+    except Exception as exc:
+        blockchain, blockchain_status = {"ready": False, "error": "Blockchain unavailable"}, "UNAVAILABLE"
 
     return {
         "status": "ok",
@@ -48,6 +45,8 @@ def get_system_status() -> Dict[str, Any]:
         "ai_extraction": ai_status,
         "face_verification": face_status,
         "blockchain": blockchain_status,
+        "face_verification_details": face,
+        "blockchain_details": blockchain,
         "frontend": "RUNNING",
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "sih-screening-audit-chain",
   "private": true,
-  "scripts": { "blockchain:node": "hardhat node", "blockchain:compile": "hardhat compile" },
-  "devDependencies": { "hardhat": "^2.22.0" }
+  "scripts": { "blockchain:node": "hardhat node", "blockchain:compile": "hardhat compile", "blockchain:deploy": "hardhat run scripts/deploy.js --network localhost" },
+  "devDependencies": { "hardhat": "^2.22.0", "@nomicfoundation/hardhat-ethers": "^3.0.0", "ethers": "^6.0.0" }
 }

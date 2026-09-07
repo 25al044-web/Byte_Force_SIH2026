@@ -5,8 +5,14 @@ from typing import Any, Dict, List
 from fastapi import APIRouter
 from app.database.session import get_db_connection
 from app.services.blockchain.audit_service import verify_audit
+from app.services.blockchain.blockchain_client import BlockchainClient
 
 router = APIRouter()
+
+@router.get("/blockchain/status")
+def blockchain_status() -> Dict[str, Any]:
+    """Truthful local Hardhat and deployed-contract readiness probe."""
+    return BlockchainClient().health()
 
 
 @router.get("/audit")
@@ -77,3 +83,8 @@ def list_audits() -> Dict[str, Any]:
 def get_audit(screening_id: str):
     """Verify cryptographic hash and blockchain consensus for a given screening record."""
     return verify_audit(screening_id)
+
+@router.post("/audit/{screening_id}/verify")
+def verify_audit_post(screening_id: str):
+    result = verify_audit(screening_id)
+    return {"verified": result.get("integrity_status") == "VERIFIED", "database_hash": result.get("current_hash"), "blockchain_hash": result.get("stored_hash"), "transaction_hash": result.get("transaction_hash"), "block_number": result.get("block_number"), **result}

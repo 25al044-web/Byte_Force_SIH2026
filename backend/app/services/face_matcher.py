@@ -19,7 +19,7 @@ Return format:
 
 import logging
 from io import BytesIO
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,7 @@ def _import_numpy():
 # Module-level app cache
 # ---------------------------------------------------------------------------
 _face_app = None
+_face_engine_error: Optional[str] = None
 
 
 def _get_face_app():
@@ -83,7 +84,7 @@ def _get_face_app():
     Uses the buffalo_sc (small, CPU-friendly) model pack.
     Downloads automatically on first call (~100 MB) and caches to disk.
     """
-    global _face_app
+    global _face_app, _face_engine_error
     if _face_app is None:
         FaceAnalysis = _import_insightface()
         app = FaceAnalysis(
@@ -92,7 +93,33 @@ def _get_face_app():
         )
         app.prepare(ctx_id=0, det_size=(640, 640))
         _face_app = app
+        _face_engine_error = None
     return _face_app
+
+
+def is_face_engine_ready() -> Dict[str, Any]:
+    """Return cheap, truthful readiness metadata for the cached ONNX engine.
+
+    This deliberately validates loaded model sessions only; it never runs image
+    inference as part of the fifteen-second dashboard probe.
+    """
+    global _face_engine_error
+    try:
+        app = _get_face_app()
+        models = getattr(app, "models", {}) or {}
+        detector = models.get("detection") or models.get("det_10g")
+        recognizer = models.get("recognition") or models.get("w600k_r50")
+        if detector is None or recognizer is None:
+            raise RuntimeError("InsightFace detector or recognition model is missing")
+        import onnxruntime as ort  # type: ignore
+        if "CPUExecutionProvider" not in ort.get_available_providers():
+            raise RuntimeError("CPUExecutionProvider is not available")
+        return {"ready": True, "engine": "InsightFace", "detector": "RetinaFace",
+                "embedding": "ArcFace 512-D", "provider": "CPUExecutionProvider"}
+    except Exception as exc:
+        _face_engine_error = str(exc)
+        logger.exception("Face verification engine readiness failed")
+        return {"ready": False, "error": "Face engine initialization failed"}
 
 
 # ---------------------------------------------------------------------------
@@ -444,4 +471,3 @@ def compute_embedding_similarity(emb1: List[float], emb2: List[float]) -> float:
     dot = float(np.dot(v1, v2))
     dot = max(-1.0, min(1.0, dot))
     return _cosine_to_percent(dot)
-

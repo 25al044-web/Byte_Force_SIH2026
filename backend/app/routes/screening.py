@@ -46,6 +46,7 @@ from app.services.tamper_detector import detect_tampering, _decode_and_sanitize_
 from app.services.trusted_registry import cross_verify_identity
 import logging
 from app.services.blockchain.audit_service import create_audit
+from app.services.blockchain.audit_service import record_event
 from app.services.case_service import save_case
 
 logger = logging.getLogger(__name__)
@@ -249,15 +250,19 @@ async def screen_identity(
 
     # 13. Build the completed result, then append the isolated fail-open audit.
     screening_id = f"SCR-2026-{uuid.uuid4().hex[:8].upper()}"
+    record_event("SCREENING_CREATED", "SCREENING", screening_id, "SCREENING_CREATED", {"screening_id": screening_id})
     result_payload = {
         "risk": {"score": risk_evaluation["score"], "level": risk_evaluation["level"]},
         "checks": {
             "tamper": {"status": tamper_res["status"], "recommendation": tamper_res.get("recommendation")},
             "face_match": {"status": face_res["status"]},
+            "blacklist": {"status": blacklist_res["status"]},
             "trusted_registry": {"status": trusted_registry_res["status"], "record_found": trusted_registry_res["record_found"]},
         },
     }
     blockchain_audit = create_audit(screening_id, document_bytes, selfie_bytes, result_payload)
+    if blacklist_res["status"] == "FAIL":
+        record_event("BLACKLIST_MATCH", "SCREENING", screening_id, "BLACKLIST_MATCH", {"screening_id": screening_id, "blacklist_status": "FAIL"})
 
     # Determine recommendation & main reason for case review
     recommendation = tamper_res.get("recommendation") or "MANUAL_REVIEW_RECOMMENDED"
